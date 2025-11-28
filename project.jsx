@@ -757,10 +757,6 @@ export default function App() {
 
   const toggleModal = (key, val = true) => setModals(prev => ({ ...prev, [key]: val }));
   
-  const handleLogin = async (e) => {
-
-  const toggleModal = (key, val = true) => setModals(prev => ({ ...prev, [key]: val }));
-  
 const handleLogin = async (e) => {
     e.preventDefault();
     try {
@@ -794,6 +790,20 @@ const handleLogin = async (e) => {
         await addLog(null, '登入失敗', `ID: ${loginId} 嘗試登入失敗`);
     }
   };
+
+const handleLogout = async () => {
+      try {
+          await signOut(auth); // 1. 登出 Firebase
+          setCurrentUserProfile(null); // 2. 清空當前用戶資料
+          setLoginPassword(''); // 3. 清空密碼欄位
+          setAuthMode('login'); // 4. 切換回登入畫面
+          showToast(setToast, '已登出');
+      } catch (error) {
+          console.error("Logout failed", error);
+      }
+  };
+  
+  
 const handleRegister = async (e) => {
     e.preventDefault();
     if(!registerData.password) { showToast(setToast, '請設定密碼', 'error'); return; }
@@ -1411,5 +1421,6 @@ const handleRegister = async (e) => {
   );
 
 }
+
 
 
