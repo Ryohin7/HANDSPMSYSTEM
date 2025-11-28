@@ -74,7 +74,7 @@ const notifyGroup = async (users, roleFilter, type, message) => {
 
 // --- Helper Functions (Email) ---
 const sendEmail = async (toEmail, subject, content) => {
-    if (!toEmail || !toEmail.includes('@')) return; // 簡單檢查
+    if (!toEmail || !toEmail.includes('@')) return; 
     try {
         await fetch('/api/send-email', {
             method: 'POST',
@@ -546,7 +546,37 @@ const ProjectsView = ({ projects, users, currentUser, isAdmin, onAdd, onSelect, 
 };
 
 // --- Project Details with Discussion Modal ---
-const ProjectDetailsModal = ({ project, onClose, users, currentUser, isAdmin }) => {
+const updateProject = async (updates, message) => {
+      try {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', project.id), updates);
+          if (message) await handleAddSystemComment(message);
+          
+          // 1. 處理指派變更通知 + Email
+          if (updates.assignedToEmployeeId && updates.assignedToEmployeeId !== project.assignedToEmployeeId) {
+              const assignedUser = users.find(u => u.employeeId === updates.assignedToEmployeeId);
+              if (assignedUser) {
+                  await sendNotification(assignedUser.uid, 'assignment', `${currentUser.displayName} 將專案「${project.title}」指派給了您`, project.id);
+                  
+                  // 發送 Email (確認該員工有 email 資料)
+                  if (assignedUser.email) {
+                      await sendEmail(assignedUser.email, `新專案指派：${project.title}`, `Hi ${assignedUser.displayName},<br/><br/>${currentUser.displayName} 剛剛指派了一個新專案給您：<br/><b>${project.title}</b><br/><br/>請登入系統查看詳情。`);
+                  }
+              }
+          }
+
+          // 2. 處理狀態變更通知 + Email (給建立者)
+          if (updates.status && project.createdBy !== currentUser.employeeId) {
+              const creator = users.find(u => u.employeeId === project.createdBy);
+              if (creator && creator.email) {
+                  await sendEmail(
+                      creator.email,
+                      `專案狀態更新：${project.title}`,
+                      `Hi ${creator.displayName},<br/><br/>您建立的專案 <b>${project.title}</b> 狀態已更新為：<b>${updates.status}</b><br/>操作者：${currentUser.displayName}`
+                  );
+              }
+          }
+      } catch (e) { console.error(e); }
+  };
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const commentsEndRef = useRef(null);
@@ -1453,6 +1483,7 @@ const handleRegister = async (e) => {
   );
 
 }
+
 
 
 
