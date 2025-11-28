@@ -13,30 +13,24 @@ import {
   Menu, X, MessageSquare, UserCircle, Hash, Mail, CalendarClock, Send, LogIn,
   CheckCircle2, AlertCircle, Grid, List, Edit, ArrowRight, Briefcase, Bell,
   CalendarDays, Zap, AlertTriangle, Flame, Gift, CheckSquare, Ticket, UserCheck, BriefcaseBusiness,
-  Lock, KeyRound, Timer, UserCog, LogOut, FileText, Info, Archive, Undo2, ArrowRightLeft, UserPlus, ChevronRight,
-  Megaphone, Database, Eraser, BellRing
+  Lock, KeyRound, Timer, UserCog, LogOut, FileText, Info, Archive, Undo2, ArrowRightLeft, UserPlus, ChevronRight, BellRing, Megaphone, Database, Eraser
 } from 'lucide-react';
 
-// --- Configuration & Constants ---
-const APP_VERSION = '2.5.0'; // Version Number Only
+// ==========================================
+// --- Module: Configuration & Constants ---
+// ==========================================
+
+const APP_VERSION = '2.5.1';
 const THEME_COLOR = '#007130';
 const DEPARTMENTS = ['企劃', '設計', '採購', '營業', '資訊', '營運'];
-const DEPARTMENT_ICONS = {
-    '企劃': '📝',
-    '設計': '🎨',
-    '採購': '🛍️',
-    '營業': '🏪',
-    '資訊': '💻',
-    '營運': '⚙️'
-};
 const VOUCHER_REASONS = ['活動結束退換貨補券', '客訴或個案','其他'];
 const MEMBER_CHANGE_TYPES = ['變更手機號碼', '變更生日', '刪除會員','其他'];
+const DEPARTMENT_ICONS = { '企劃': '📝', '設計': '🎨', '採購': '🛍️', '營業': '🏪', '資訊': '💻', '營運': '⚙️' };
 
 const CHANGELOGS = [
-    { version: '2.5.0', date: '2025-06-11', content: ['新增管理員推播公告功能', '新增公告顯示面板', '新增系統維護功能(清除Log/通知)', 'Log頁面新增資料庫狀態', '優化版本號顯示'] },
-    { version: '2.2.2', date: '2025-06-04', content: ['電子券申請新增「駁回」功能', '開放主管 (Manager) 權限可核准或駁回電子券申請'] },
-    { version: '2.2.1', date: '2025-06-03', content: ['全面應用部門 Emoji 圖示於選單與列表中', '優化使用者介面視覺細節'] },
-    { version: '2.2.0', date: '2025-06-02', content: ['新增部門對應 Emoji 圖示', '管理員名稱新增皇冠 👑 標示', '實作資料權限分流'] },
+    { version: '2.5.1', date: '2025-06-11', content: ['修復使用者資料讀取錯誤 (Fix ReferenceError)', '系統穩定性優化'] },
+    { version: '2.5.0', date: '2025-06-11', content: ['新增管理員「系統維護」功能', '儀表板新增「公告發布」面板', '通知中心介面優化', 'Log 視窗新增資料庫狀態監控'] },
+    { version: '2.4.0', date: '2025-06-10', content: ['系統模組化架構重構'] },
 ];
 
 // Firebase Init
@@ -44,132 +38,91 @@ const firebaseConfig = {
   apiKey: "AIzaSyC6AOjDsuIbSjTMVqvVDTCu8gO_FTz9jrM",
   authDomain: "handspmsystem.firebaseapp.com",
   projectId: "handspmsystem",
-  // ...其他欄位
 };
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-// --- Helper Functions (Notifications) ---
+// ==========================================
+// --- Module: Utils & Helpers ---
+// ==========================================
+
+const formatTime = (ts) => !ts ? '剛剛' : new Date(ts.toDate?.() || ts).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const formatDate = (ts) => !ts ? '...' : new Date(ts.toDate?.() || ts).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
+const getDepartmentLabel = (dept) => `${DEPARTMENT_ICONS[dept] || '🏢'} ${dept}`;
+const getDaysDiff = (target) => Math.ceil((new Date(new Date(target).setHours(0,0,0,0)) - new Date(new Date().setHours(0,0,0,0))) / (86400000));
+const getScheduleEmoji = (n) => {
+    if (!n) return '📅';
+    if (n.includes('春')||n.includes('年')) return '🧧'; if (n.includes('母')) return '🌹'; if (n.includes('父')) return '👔';
+    if (n.includes('聖誕')) return '🎄'; if (n.includes('夏')) return '☀️'; if (n.includes('購')) return '🛍️'; return '📅';
+};
+
 const sendNotification = async (targetUid, type, message, linkId = null) => {
     if (!targetUid) return;
-    try {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
-            targetUserId: targetUid,
-            type,
-            message,
-            linkProjectId: linkId,
-            read: false,
-            createdAt: serverTimestamp()
-        });
-    } catch (e) { console.error("Notification Error:", e); }
+    try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), { targetUserId: targetUid, type, message, linkProjectId: linkId, read: false, createdAt: serverTimestamp() }); } catch (e) { console.error(e); }
 };
-
 const notifyGroup = async (users, roleFilter, type, message) => {
-    const targets = users.filter(roleFilter);
-    for (const user of targets) {
-        await sendNotification(user.uid, type, message);
-    }
+    users.filter(roleFilter).forEach(u => sendNotification(u.uid, type, message));
+};
+const addLog = async (u, action, details) => {
+    try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { action, details, userId: u?.uid||'sys', userName: u?.displayName||'System', timestamp: serverTimestamp() }); } catch(e) {}
 };
 
-// --- Hooks ---
-const useSystemData = (authUser, userProfile) => {
-  const [data, setData] = useState({
-    projects: [], users: [], logs: [], notifications: [], schedules: [], announcements: [],
-    pointRequests: [], voucherRequests: [], voucherPool: [], memberChangeRequests: []
-  });
+// ==========================================
+// --- Module: Custom Hooks ---
+// ==========================================
 
+const useSystemData = (authUser, userProfile) => {
+  const [data, setData] = useState({ projects: [], users: [], logs: [], notifications: [], schedules: [], announcements: [], pointRequests: [], voucherRequests: [], voucherPool: [], memberChangeRequests: [] });
+  
   useEffect(() => {
-    if (!authUser) return; 
-    
-    // Permission Filter Logic
+    if (!authUser) return;
     const isPrivileged = userProfile?.role === 'admin' || userProfile?.role === 'manager';
     const personalFilter = (d) => isPrivileged ? true : d.requesterId === userProfile?.employeeId;
 
-    const collections = [
+    const definitions = [
       { key: 'users', path: 'users_metadata' },
       { key: 'projects', path: 'projects', sort: 'updatedAt' },
       { key: 'logs', path: 'logs', sort: 'timestamp' },
       { key: 'schedules', path: 'schedules', sort: 'startDate', isDate: true },
-      { key: 'announcements', path: 'announcements', sort: 'createdAt' }, // Added announcements
-      { 
-        key: 'notifications', 
-        path: 'notifications', 
-        sort: 'createdAt', 
-        filter: (d) => userProfile && d.targetUserId === userProfile.uid 
-      },
-      // Apply personal filter to these collections
+      { key: 'announcements', path: 'announcements', sort: 'createdAt' },
+      { key: 'voucherPool', path: 'voucher_pool' },
+      { key: 'notifications', path: 'notifications', sort: 'createdAt', filter: (d) => userProfile && d.targetUserId === userProfile.uid },
       { key: 'pointRequests', path: 'point_requests', sort: 'createdAt', filter: personalFilter },
       { key: 'voucherRequests', path: 'voucher_requests', sort: 'createdAt', filter: personalFilter },
       { key: 'memberChangeRequests', path: 'member_change_requests', sort: 'createdAt', filter: personalFilter },
-      
-      { key: 'voucherPool', path: 'voucher_pool' }
     ];
 
-    const unsubs = collections.map(({ key, path, sort, isDate, filter }) => 
+    const unsubs = definitions.map(({ key, path, sort, isDate, filter }) => 
       onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', path), (snap) => {
+        // Web Push Logic
+        if (key === 'notifications') {
+            snap.docChanges().forEach((c) => {
+                if (c.type === 'added') {
+                    const d = c.doc.data();
+                    const isRecent = (Date.now() - (d.createdAt?.toMillis?.() || Date.now())) < 10000;
+                    if (userProfile && d.targetUserId === userProfile.uid && isRecent && Notification.permission === 'granted') {
+                        try { new Notification('Hands PM', { body: d.message, icon: '/vite.svg', tag: c.doc.id }); } catch(e){}
+                    }
+                }
+            });
+        }
         let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         if (filter) items = items.filter(filter);
-        if (sort) {
-          items.sort((a, b) => {
-            const valA = a[sort], valB = b[sort];
-            if (isDate) return new Date(valA) - new Date(valB);
-            return (valB?.toMillis?.() || 0) - (valA?.toMillis?.() || 0);
-          });
-        }
-        setData(prev => ({ ...prev, [key]: items }));
+        if (sort) items.sort((a, b) => { const vA = a[sort], vB = b[sort]; return isDate ? new Date(vA)-new Date(vB) : (vB?.toMillis?.()||0)-(vA?.toMillis?.()||0); });
+        setData(p => ({ ...p, [key]: items }));
       })
     );
     return () => unsubs.forEach(u => u());
-  }, [authUser, userProfile]); 
-
+  }, [authUser, userProfile]);
   return data;
 };
 
-// --- Helper Functions (Format) ---
-const formatTime = (ts) => !ts ? '剛剛' : new Date(ts.toDate?.() || ts).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const formatDate = (ts) => !ts ? '...' : new Date(ts.toDate?.() || ts).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
-const showToast = (setToast, msg, type = 'success') => setToast({ show: true, message: msg, type });
+// ==========================================
+// --- Module: UI Components ---
+// ==========================================
 
-const addLog = async (currentUser, action, details) => {
-  try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), {
-    action, details, userId: currentUser?.uid || 'system', userName: currentUser?.displayName || 'System', timestamp: serverTimestamp()
-  }); } catch(e) {}
-};
-
-const getDaysDiff = (targetDate) => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const target = new Date(targetDate);
-    target.setHours(0,0,0,0);
-    const diffTime = target - today;
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-};
-
-const getScheduleEmoji = (name) => {
-    if (!name) return '📅';
-    if (name.includes('春節') || name.includes('新春') || name.includes('過年')) return '🧧';
-    if (name.includes('母親節')) return '🌹'; 
-    if (name.includes('年中慶')) return '🎉';
-    if (name.includes('父親節')) return '👔';
-    if (name.includes('秋') || name.includes('秋上市')) return '🍁';
-    if (name.includes('週年慶')) return '🎂';
-    if (name.includes('聖誕') || name.includes('耶誕')) return '🎄';
-    if (name.includes('情人')) return '💘';
-    if (name.includes('夏')) return '☀️';
-    if (name.includes('開學')) return '🎒';
-    if (name.includes('雙11') || name.includes('購物節')) return '🛍️';
-    return '📅';
-};
-
-// Helper to get department label with emoji
-const getDepartmentLabel = (dept) => {
-    const icon = DEPARTMENT_ICONS[dept] || '🏢';
-    return `${icon} ${dept}`;
-};
-
-// --- Shared Components ---
 const Modal = ({ isOpen, onClose, title, children, maxWidth = "max-w-md" }) => {
   if (!isOpen) return null;
   return (
@@ -190,18 +143,11 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black/50 z-[10000] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-gray-100 transform transition-all scale-100">
-        <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500 shrink-0">
-                <AlertTriangle size={20} />
-            </div>
-            <h3 className="text-lg font-bold text-gray-800">{title}</h3>
-        </div>
+        <div className="flex items-center gap-3 mb-4"><div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500 shrink-0"><AlertTriangle size={20} /></div><h3 className="text-lg font-bold text-gray-800">{title}</h3></div>
         <p className="text-gray-600 text-sm mb-6 leading-relaxed pl-1">{message}</p>
         <div className="flex justify-end gap-3">
           <button onClick={onClose} className="px-4 py-2.5 text-gray-500 font-bold hover:bg-gray-100 rounded-xl transition-colors text-sm">取消</button>
-          <button onClick={() => { onConfirm(); onClose(); }} className="px-5 py-2.5 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 shadow-md shadow-red-200 transition-all text-sm flex items-center gap-2">
-              <Trash2 size={16} /> 確認執行
-          </button>
+          <button onClick={() => { onConfirm(); onClose(); }} className="px-5 py-2.5 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 shadow-md shadow-red-200 transition-all text-sm flex items-center gap-2"><Trash2 size={16} /> 確認執行</button>
         </div>
       </div>
     </div>
@@ -209,16 +155,7 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onClose }) => {
 };
 
 const StatusBadge = ({ status }) => {
-  const map = {
-    active: ['bg-green-50 text-[#007130]', '進行中'],
-    transferred: ['bg-blue-50 text-blue-600', '轉交給他人'],
-    completed: ['bg-gray-100 text-gray-500', '已完成'],
-    unassigned: ['bg-slate-100 text-slate-600', '待分配'],
-    pending: ['bg-orange-50 text-orange-600', '待核准'],
-    closed: ['bg-gray-100 text-gray-500', '已結案'],
-    approved: ['bg-theme-light text-theme', '已核准'],
-    rejected: ['bg-red-50 text-red-600', '已駁回']
-  };
+  const map = { active: ['bg-green-50 text-[#007130]', '進行中'], transferred: ['bg-blue-50 text-blue-600', '轉交給他人'], completed: ['bg-gray-100 text-gray-500', '已完成'], unassigned: ['bg-slate-100 text-slate-600', '待分配'], pending: ['bg-orange-50 text-orange-600', '待核准'], closed: ['bg-gray-100 text-gray-500', '已結案'], approved: ['bg-theme-light text-theme', '已核准'], rejected: ['bg-red-50 text-red-600', '已駁回'] };
   const [cls, label] = map[status] || map.unassigned;
   return <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold shadow-sm border border-black/5 ${cls} whitespace-nowrap`}>{label}</span>;
 };
@@ -226,19 +163,105 @@ const StatusBadge = ({ status }) => {
 const UrgencyBadge = ({ level }) => {
   if (!level || level === 'normal') return null;
   const isVery = level === 'very_urgent';
-  return (
-    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm border whitespace-nowrap ${isVery ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 'bg-orange-50 text-orange-600 border-orange-200'}`}>
-      {isVery ? <Flame size={10} fill="currentColor"/> : <Zap size={10} fill="currentColor"/>}
-      {isVery ? '非常緊急' : '緊急'}
-    </span>
-  );
+  return <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm border whitespace-nowrap ${isVery ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 'bg-orange-50 text-orange-600 border-orange-200'}`}>{isVery ? <Flame size={10} fill="currentColor"/> : <Zap size={10} fill="currentColor"/>}{isVery ? '非常緊急' : '緊急'}</span>;
 };
 
-// --- Sub-Components ---
+const MobileRequestCard = ({ title, status, meta, actions, children }) => (
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-4 flex flex-col gap-3 relative overflow-hidden">
+        <div className="flex justify-between items-start"><div><h4 className="font-bold text-gray-800 text-lg mb-1">{title}</h4><div className="text-xs text-gray-400 font-mono">{meta}</div></div><StatusBadge status={status} /></div>
+        <div className="bg-gray-50 p-3 rounded-xl text-sm text-gray-600 border border-gray-50/50">{children}</div>
+        {actions && <div className="flex justify-end gap-2 pt-2 border-t border-gray-50 mt-1">{actions}</div>}
+    </div>
+);
 
-const Sidebar = ({ activeTab, setActiveTab, currentUser, unreadCount, notifications, markAsRead, onNotificationClick, isMobile, onCloseMobile, onLogout, onShowChangelog }) => {
-  const [showNotifications, setShowNotifications] = useState(false);
-  
+// ==========================================
+// --- Module: Views (Components) ---
+// ==========================================
+
+const AuthView = ({ onLoginSuccess, onToast, usersCount }) => {
+    const [mode, setMode] = useState('login');
+    const [loginId, setLoginId] = useState('');
+    const [loginPassword, setLoginPassword] = useState('');
+    const [registerData, setRegisterData] = useState({ name: '', employeeId: '', email: '', department: '企劃', password: '' });
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        const cleanId = loginId.trim(); const cleanPwd = loginPassword.trim();
+        if(!cleanId || !cleanPwd) return onToast('請輸入完整的帳號與密碼', 'error');
+        try {
+            const uc = await signInWithEmailAndPassword(auth, `${cleanId}@hands.com`, cleanPwd);
+            const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', uc.user.uid));
+            if (snap.exists()) {
+                const userData = snap.data();
+                await updateDoc(snap.ref, { lastActive: serverTimestamp(), isOnline: true });
+                onLoginSuccess(userData);
+                onToast('登入成功');
+            } else { onToast('找不到員工資料', 'error'); }
+        } catch (e) { console.error(e); onToast('帳號或密碼錯誤 (或未註冊)', 'error'); await addLog(null, '登入失敗', `ID: ${cleanId}`); }
+    };
+
+    const handleRegister = async (e) => {
+        e.preventDefault();
+        const cleanId = registerData.employeeId.trim();
+        const cleanPwd = registerData.password.trim();
+        const cleanName = registerData.name.trim();
+        if(cleanPwd.length < 6 || cleanPwd.length > 12) return onToast('密碼需 6~12 碼', 'error');
+        if(!cleanName || !cleanId) return onToast('資料不完整', 'error');
+        try {
+            const uc = await createUserWithEmailAndPassword(auth, `${cleanId}@hands.com`, cleanPwd);
+            const user = userCredential.user;
+            const isFirstRun = usersCount === 0; 
+            const role = isFirstRun ? 'admin' : 'user';
+
+            const userData = { 
+                uid: uc.user.uid, displayName: cleanName, employeeId: cleanId, email: registerData.email,
+                department: registerData.department, role, isOnline: true, 
+                lastActive: serverTimestamp(), createdAt: serverTimestamp() 
+            };
+            
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', uc.user.uid), userData);
+            await sendNotification(uc.user.uid, 'system', `歡迎加入！您的員工編號為：${cleanId}, 權限: ${role==='admin'?'管理員':'一般'}`);
+            await addLog(userData, '系統註冊', `${cleanName} 註冊 (${role})`);
+            onLoginSuccess(userData);
+            onToast('註冊成功');
+        } catch (e) { console.error(e); onToast(e.message, 'error'); }
+    };
+
+    return (
+        <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
+            <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl w-full max-w-md border border-gray-100">
+                <div className="text-center mb-8">
+                    <div className="w-24 h-24 bg-gradient-to-br from-[#007130] to-[#004d21] rounded-3xl flex items-center justify-center mx-auto mb-6 text-white shadow-xl rotate-3"><FolderKanban size={48} /></div>
+                    <h1 className="text-3xl font-black text-gray-800 mb-2">台隆手創館</h1><h2 className="text-gray-400 font-medium">專案管理系統 {APP_VERSION}</h2>
+                </div>
+                {mode === 'login' ? (
+                    <form onSubmit={handleLogin} className="space-y-5 animate-fade-in">
+                        <div><label className="text-sm font-bold text-gray-600 ml-1">員工編號</label><input className="w-full border-2 border-gray-100 rounded-2xl p-4 bg-gray-50 text-lg outline-none focus:border-theme" placeholder="輸入編號" value={loginId} onChange={e=>setLoginId(e.target.value)} /></div>
+                        <div><label className="text-sm font-bold text-gray-600 ml-1">密碼</label><input type="password" className="w-full border-2 border-gray-100 rounded-2xl p-4 bg-gray-50 text-lg outline-none focus:border-theme" placeholder="輸入密碼" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} /></div>
+                        <button className="w-full bg-theme text-white font-bold py-4 rounded-2xl text-lg hover:shadow-xl transition flex items-center justify-center gap-2"><LogIn size={20}/> 登入</button>
+                        <div className="border-t pt-4 text-center"><button type="button" onClick={()=>setMode('register')} className="text-gray-400 hover:text-gray-600 font-bold">員工註冊</button></div>
+                    </form>
+                ) : (
+                    <form onSubmit={handleRegister} className="space-y-5 animate-fade-in">
+                        <div className="flex items-center gap-2 text-xl font-bold text-gray-800 mb-4"><button type="button" onClick={() => setMode('login')} className="p-1 -ml-1 text-gray-400 hover:text-theme transition-colors"><ArrowRightLeft size={20}/></button> 員工註冊</div>
+                        <input className="w-full border rounded-2xl p-4 bg-gray-50 outline-none focus:ring-2 ring-theme/50" placeholder="姓名" value={registerData.name} onChange={e=>setRegisterData({...registerData, name:e.target.value})} />
+                        <input className="w-full border rounded-2xl p-4 bg-gray-50 outline-none focus:ring-2 ring-theme/50" placeholder="Email" value={registerData.email} onChange={e=>setRegisterData({...registerData, email:e.target.value})} />
+                        <div className="grid grid-cols-2 gap-4">
+                            <input className="w-full border rounded-2xl p-4 bg-gray-50 outline-none" placeholder="編號" value={registerData.employeeId} onChange={e=>setRegisterData({...registerData, employeeId:e.target.value.replace(/\D/g,'')})} maxLength={6} />
+                            <select className="border rounded-2xl p-4 bg-gray-50 outline-none" value={registerData.department} onChange={e=>setRegisterData({...registerData, department:e.target.value})}>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select>
+                        </div>
+                        <input type="password" className="w-full border rounded-2xl p-4 bg-gray-50 outline-none" placeholder="密碼 (6-12位)" value={registerData.password} onChange={e=>setRegisterData({...registerData, password:e.target.value})} />
+                        <button className="w-full bg-theme text-white font-bold py-4 rounded-2xl text-lg hover:shadow-xl transition">註冊並登入</button>
+                    </form>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const Sidebar = ({ activeTab, setActiveTab, currentUser, notifications, markAsRead, onNotificationClick, isMobile, onCloseMobile, onLogout, onShowChangelog }) => {
+  const [showNotif, setShowNotif] = useState(false);
+  const unreadCount = notifications.filter(n => !n.read).length;
   const menuItems = [
     { id: 'dashboard', label: '儀表板', icon: LayoutDashboard },
     { id: 'projects', label: '專案列表', icon: FolderKanban },
@@ -250,98 +273,51 @@ const Sidebar = ({ activeTab, setActiveTab, currentUser, unreadCount, notificati
   ];
 
   return (
-    <aside className={`fixed lg:static inset-y-0 left-0 z-30 w-80 bg-white border-r border-gray-200 transition-transform duration-300 ease-in-out flex flex-col ${isMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} shadow-2xl lg:shadow-none`}>
-      <div className="p-6 border-b border-gray-100 flex items-center gap-3 bg-white sticky top-0 z-10">
-        <div className="bg-gradient-to-br from-[#007130] to-[#005a26] text-white p-2.5 rounded-xl shadow-lg"><FolderKanban size={22} /></div>
-        <div><h1 className="text-lg font-bold text-gray-800 tracking-tight">台隆手創館</h1><span className="text-xs text-gray-400 font-medium tracking-wide">專案管理系統</span></div>
-      </div>
+    <aside className={`fixed lg:static inset-y-0 left-0 z-30 w-80 bg-white border-r border-gray-200 transition-transform duration-300 ${isMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} flex flex-col shadow-2xl lg:shadow-none`}>
+      <div className="p-6 border-b flex items-center gap-3"><div className="bg-theme text-white p-2.5 rounded-xl"><FolderKanban size={22} /></div><div><h1 className="text-lg font-bold">台隆手創館</h1><span className="text-xs text-gray-400">專案管理系統</span></div></div>
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         <div className="mb-4 relative">
-           <button 
-             onClick={() => setShowNotifications(!showNotifications)}
-             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold border transition-all duration-200 ${showNotifications ? 'bg-theme text-white border-theme shadow-md ring-2 ring-theme/20' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-           >
-             <Bell size={20} className={unreadCount > 0 && !showNotifications ? 'animate-bounce' : ''} />
-             <span>通知中心</span>
-             {unreadCount > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm">{unreadCount}</span>}
-           </button>
-
-           {/* Notification Dropdown */}
-           {showNotifications && (
-             <div className="absolute top-full left-0 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl z-20 max-h-80 overflow-y-auto animate-fade-in ring-1 ring-black/5">
-                 {notifications.length === 0 ? (
-                     <div className="p-8 text-center text-gray-400 text-xs">目前沒有新通知</div>
-                 ) : (
-                     notifications.map(n => (
-                         <div 
-                           key={n.id} 
-                           onClick={() => {
-                               markAsRead(n.id);
-                               if(n.linkProjectId) onNotificationClick(n.linkProjectId);
-                           }}
-                           className={`p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition-colors ${n.read ? 'opacity-60' : 'bg-blue-50/40'}`}
-                         >
-                             <div className="flex justify-between items-start mb-1.5">
-                                 {/* Updated: Optimized notification header, removing redundant '異動' type label */}
-                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${n.type === 'assignment' ? 'bg-theme/10 text-theme' : 'bg-blue-100 text-blue-600'}`}>
-                                     {n.type === 'assignment' ? '新指派' : '通知'}
-                                 </span>
-                                 <span className="text-[10px] text-gray-400">{formatTime(n.createdAt)}</span>
-                             </div>
-                             <p className="text-xs text-gray-700 leading-relaxed font-medium">{n.message}</p>
-                         </div>
-                     ))
-                 )}
+           <div className="flex gap-2">
+               <button onClick={() => setShowNotif(!showNotif)} className={`flex-1 flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold border transition-all ${showNotif ? 'bg-theme text-white' : 'bg-white border-gray-200 text-gray-600'}`}>
+                 <Bell size={20} className={unreadCount>0 && !showNotif ? 'animate-bounce' : ''} />通知中心
+                 {unreadCount>0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{unreadCount}</span>}
+               </button>
+               {Notification.permission === 'default' && <button onClick={()=>Notification.requestPermission()} className="px-3 rounded-2xl border bg-white text-gray-400 hover:text-theme"><BellRing size={20} /></button>}
+           </div>
+           {showNotif && (
+             <div className="absolute top-full left-0 w-full mt-2 bg-white border rounded-2xl shadow-xl z-20 max-h-80 overflow-y-auto">
+                 {notifications.length === 0 ? <div className="p-8 text-center text-gray-400 text-xs">無新通知</div> : notifications.map(n => (
+                     <div key={n.id} onClick={() => { markAsRead(n.id); if(n.linkProjectId) onNotificationClick(n.linkProjectId); }} className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${n.read ? 'opacity-60' : 'bg-blue-50/40'}`}>
+                         <div className="flex justify-between mb-1"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${n.type==='assignment'?'bg-theme/10 text-theme':'bg-blue-100 text-blue-600'}`}>{n.type==='assignment'?'新指派': (n.type==='system' ? '公告' : '通知')}</span><span className="text-[10px] text-gray-400">{formatTime(n.createdAt)}</span></div>
+                         <p className="text-xs text-gray-700">{n.message}</p>
+                     </div>
+                 ))}
              </div>
            )}
         </div>
-        {menuItems.map((item, i) => item.divider ? 
-          <div key={i} className="h-px bg-gray-100 my-3 mx-4"/> : 
-          <button key={item.id} onClick={() => { setActiveTab(item.id); onCloseMobile?.(); }}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all duration-200 ${activeTab === item.id ? 'bg-theme-light text-theme shadow-sm ring-1 ring-theme/10' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'}`}>
-            <item.icon size={20} strokeWidth={2.5} className={activeTab === item.id ? 'text-theme' : 'text-gray-400'} />{item.label}
+        {menuItems.map((item, i) => item.divider ? <div key={i} className="h-px bg-gray-100 my-3 mx-4"/> : 
+          <button key={item.id} onClick={() => { setActiveTab(item.id); onCloseMobile?.(); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all ${activeTab === item.id ? 'bg-theme-light text-theme' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <item.icon size={20} />{item.label}
           </button>
         )}
       </nav>
-      <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+      <div className="p-4 border-t bg-gray-50/50">
         <div className="flex items-center gap-3 px-2 py-2">
-          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-gray-500 shadow-sm border border-gray-200">{currentUser?.displayName?.[0]}</div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1">
-                <p className="text-sm font-bold truncate text-gray-800">{currentUser?.displayName}</p>
-                {currentUser?.role === 'admin' && <span className="text-xs" title="管理員">👑</span>}
-            </div>
-            <p className="text-xs text-gray-500 flex items-center gap-1"><Briefcase size={10}/>{getDepartmentLabel(currentUser?.department)}</p>
-          </div>
-          <button onClick={onLogout} className="p-2 text-gray-400 hover:text-red-500 hover:bg-white hover:shadow-sm rounded-xl transition-all" title="登出">
-              <LogOut size={18} />
-          </button>
+          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-gray-500 shadow-sm">{currentUser?.displayName?.[0]}</div>
+          <div className="flex-1 min-w-0"><p className="text-sm font-bold truncate">{currentUser?.displayName}</p><p className="text-xs text-gray-500">{getDepartmentLabel(currentUser?.department)}</p></div>
+          <button onClick={onLogout} className="p-2 text-gray-400 hover:text-red-500 bg-white rounded-xl"><LogOut size={18} /></button>
         </div>
-        <div className="flex items-center justify-center gap-2 mt-3">
-            <div className="text-[10px] text-gray-300 font-mono tracking-wide">{APP_VERSION}</div>
-            <button onClick={onShowChangelog} className="text-[10px] text-theme font-bold bg-white border border-theme/20 px-2 py-0.5 rounded-full hover:bg-theme hover:text-white transition-colors">Log</button>
-        </div>
+        <div className="flex justify-center gap-2 mt-3"><div className="text-[10px] text-gray-300 font-mono">{APP_VERSION}</div><button onClick={onShowChangelog} className="text-[10px] text-theme font-bold bg-white px-2 py-0.5 rounded-full border border-theme/20">Log</button></div>
       </div>
     </aside>
   );
 };
 
 const DashboardView = ({ projects, users, myCount, isAdmin, schedules, logs, openScheduleModal, deleteSchedule, onBroadcast, setBroadcastMsg, broadcastMsg, onAddAnnouncement, announcements, currentUser, onClearLogs, onClearNotifications }) => {
-  const today = new Date();
-  today.setHours(0,0,0,0);
-  
+  const today = new Date(); today.setHours(0,0,0,0);
   const [newAnnounce, setNewAnnounce] = useState('');
-
-  const currentSchedule = schedules.find(s => {
-      const start = new Date(s.startDate);
-      const end = new Date(s.endDate);
-      return today >= start && today <= end;
-  });
-
-  const nextSchedule = schedules
-      .filter(s => new Date(s.startDate) > today)
-      .sort((a,b) => new Date(a.startDate) - new Date(b.startDate))[0];
-
+  const currentSchedule = schedules.find(s => { const start = new Date(s.startDate); const end = new Date(s.endDate); return today >= start && today <= end; });
+  const nextSchedule = schedules.filter(s => new Date(s.startDate) > today).sort((a,b) => new Date(a.startDate) - new Date(b.startDate))[0];
   const activeScheduleName = currentSchedule ? currentSchedule.name : (nextSchedule ? nextSchedule.name : '');
   const scheduleEmoji = getScheduleEmoji(activeScheduleName);
 
@@ -349,46 +325,16 @@ const DashboardView = ({ projects, users, myCount, isAdmin, schedules, logs, ope
     <div className="space-y-6 animate-fade-in">
         <div className="bg-gradient-to-br from-[#0a2e18] to-[#14522d] rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-8 relative overflow-hidden ring-1 ring-white/10 group">
             <div className="relative z-10 flex-1 text-white">
-                <div className="flex items-center gap-2 mb-3 text-white/80 text-xs font-bold uppercase tracking-widest">
-                    <CalendarClock size={16} />
-                    HANDS 活動檔期
-                </div>
+                <div className="flex items-center gap-2 mb-3 text-white/80 text-xs font-bold uppercase tracking-widest"><CalendarClock size={16} />HANDS 活動檔期</div>
                 {currentSchedule ? (
                     <div>
                         <h2 className="text-4xl font-extrabold mb-2 tracking-tight drop-shadow-md text-white">{currentSchedule.name}</h2>
-                        <p className="text-white/90 font-mono mb-6 text-sm flex items-center gap-2">
-                            <span className="bg-white/20 px-2 py-0.5 rounded">{currentSchedule.startDate}</span>
-                            <ArrowRight size={12} className="text-white"/>
-                            <span className="bg-white/20 px-2 py-0.5 rounded">{currentSchedule.endDate}</span>
-                        </p>
-                        <div className="inline-flex items-center gap-2 bg-white text-[#007130] px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-black/10 animate-pulse">
-                            <Timer size={18} />
-                            活動倒數 {getDaysDiff(currentSchedule.endDate)} 天
-                        </div>
+                        <p className="text-white/90 font-mono mb-6 text-sm flex items-center gap-2"><span className="bg-white/20 px-2 py-0.5 rounded">{currentSchedule.startDate}</span><ArrowRight size={12} className="text-white"/><span className="bg-white/20 px-2 py-0.5 rounded">{currentSchedule.endDate}</span></p>
+                        <div className="inline-flex items-center gap-2 bg-white text-[#007130] px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-black/10 animate-pulse"><Timer size={18} />活動倒數 {getDaysDiff(currentSchedule.endDate)} 天</div>
                     </div>
-                ) : (
-                    <div>
-                        <h2 className="text-3xl font-bold mb-2 text-white/60">目前無進行中檔期</h2>
-                        {nextSchedule ? (
-                            <div className="mt-4 bg-white/10 rounded-2xl p-4 border border-white/20 inline-block backdrop-blur-sm">
-                                <p className="text-white font-bold flex items-center gap-2 text-sm mb-1">
-                                    <ArrowRight size={16} className="text-white" />
-                                    下檔預告：{nextSchedule.name}
-                                </p>
-                                <p className="text-white font-bold text-lg">
-                                    距離開檔還有 {getDaysDiff(nextSchedule.startDate)} 天
-                                </p>
-                            </div>
-                        ) : (
-                            <p className="text-white/50 text-sm mt-1 italic">尚無規劃未來檔期</p>
-                        )}
-                    </div>
-                )}
+                ) : (<div><h2 className="text-3xl font-bold mb-2 text-white/60">目前無進行中檔期</h2>{nextSchedule ? (<div className="mt-4 bg-white/10 rounded-2xl p-4 border border-white/20 inline-block backdrop-blur-sm"><p className="text-white font-bold flex items-center gap-2 text-sm mb-1"><ArrowRight size={16} className="text-white" />下檔預告：{nextSchedule.name}</p><p className="text-white font-bold text-lg">距離開檔還有 {getDaysDiff(nextSchedule.startDate)} 天</p></div>) : (<p className="text-white/50 text-sm mt-1 italic">尚無規劃未來檔期</p>)}</div>)}
             </div>
-            <div className="absolute -right-8 -bottom-10 text-[10rem] opacity-20 rotate-12 select-none pointer-events-none filter drop-shadow-2xl transition-transform duration-700 group-hover:scale-110 group-hover:rotate-6">
-                {scheduleEmoji}
-            </div>
-            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3"></div>
+            <div className="absolute -right-8 -bottom-10 text-[10rem] opacity-20 rotate-12 select-none pointer-events-none filter drop-shadow-2xl transition-transform duration-700 group-hover:scale-110 group-hover:rotate-6">{scheduleEmoji}</div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -402,14 +348,13 @@ const DashboardView = ({ projects, users, myCount, isAdmin, schedules, logs, ope
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-                {/* 新增：公告面板 (Announcement Panel) */}
+                {/* 新增：公告面板 */}
                 <div className="bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col p-6 relative overflow-hidden">
                     <div className="flex items-center gap-3 mb-4 text-gray-800">
                         <div className="p-2.5 bg-orange-100 text-orange-500 rounded-xl"><Megaphone size={20} /></div>
                         <h3 className="font-bold text-lg">公告面板</h3>
                     </div>
                     
-                    {/* Admin Only: Publish Announcement */}
                     {isAdmin && (
                         <div className="flex gap-2 mb-6">
                             <input 
@@ -538,148 +483,64 @@ export const ProjectDetailsModal = ({ project, onClose, users, currentUser, isAd
   useEffect(() => {
     if (!project) return;
     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'projects', project.id, 'comments'), orderBy('createdAt', 'asc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const unsub = onSnapshot(q, (snap) => setComments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     return () => unsub();
   }, [project]);
 
-  useEffect(() => {
-    commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [comments]);
+  useEffect(() => { commentsEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [comments]);
 
-  const handleAddSystemComment = async (text) => {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects', project.id, 'comments'), {
-          text,
-          type: 'system',
-          createdAt: serverTimestamp()
-      });
-  };
+  const handleAddSystemComment = async (text) => await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects', project.id, 'comments'), { text, type: 'system', createdAt: serverTimestamp() });
 
   const updateProject = async (updates, message) => {
       try {
           await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', project.id), updates);
           if (message) await handleAddSystemComment(message);
-          
           if (updates.assignedToEmployeeId && updates.assignedToEmployeeId !== project.assignedToEmployeeId) {
               const assignedUser = users.find(u => u.employeeId === updates.assignedToEmployeeId);
-              if (assignedUser) {
-                  await sendNotification(assignedUser.uid, 'assignment', `${currentUser.displayName} 將專案「${project.title}」指派給了您`, project.id);
-              }
+              if (assignedUser) await sendNotification(assignedUser.uid, 'assignment', `${currentUser.displayName} 將專案「${project.title}」指派給了您`, project.id);
           }
+           if (updates.status && project.createdBy !== currentUser.employeeId) {
+            const creator = users.find(u => u.employeeId === project.createdBy);
+            if (creator) await sendNotification(creator.uid, 'system', `您的專案「${project.title}」狀態已更新為：${updates.status}`, project.id);
+        }
       } catch (e) { console.error(e); }
   };
 
   const handleSendComment = async (e) => {
       e.preventDefault();
       if (!newComment.trim()) return;
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects', project.id, 'comments'), {
-          text: newComment,
-          userId: currentUser.employeeId,
-          userName: currentUser.displayName,
-          type: 'user',
-          createdAt: serverTimestamp()
-      });
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects', project.id, 'comments'), { text: newComment, userId: currentUser.employeeId, userName: currentUser.displayName, type: 'user', createdAt: serverTimestamp() });
+      const targets = [];
+      if (project.assignedToEmployeeId && project.assignedToEmployeeId !== currentUser.employeeId) targets.push(users.find(u => u.employeeId === project.assignedToEmployeeId));
+      if (project.createdBy && project.createdBy !== currentUser.employeeId) targets.push(users.find(u => u.employeeId === project.createdBy));
+      [...new Set(targets.filter(Boolean))].forEach(async (u) => await sendNotification(u.uid, 'comment', `${currentUser.displayName} 在專案「${project.title}」發表了留言`, project.id));
       setNewComment('');
   };
 
   return (
     <Modal isOpen={!!project} onClose={onClose} title="專案詳情" maxWidth="max-w-5xl">
        <div className="flex flex-col lg:flex-row gap-8 lg:h-[650px] overflow-hidden">
-         {/* Details Column */}
          <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
            <div className="flex justify-between items-start">
-             <div>
-                 <div className="flex gap-2 mb-3"><StatusBadge status={project.status}/><UrgencyBadge level={project.urgency}/></div>
-                 <h2 className="text-3xl font-extrabold mb-1 text-gray-800 leading-tight">{project.title}</h2>
-             </div>
+             <div><div className="flex gap-2 mb-3"><StatusBadge status={project.status}/><UrgencyBadge level={project.urgency}/></div><h2 className="text-3xl font-extrabold mb-1 text-gray-800 leading-tight">{project.title}</h2></div>
              <div className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100 flex items-center gap-1"><UserCircle size={14}/>建立者: {project.creatorName}</div>
            </div>
            <div className="bg-white border border-gray-100 p-6 rounded-2xl min-h-[120px] whitespace-pre-wrap text-gray-600 shadow-sm leading-relaxed text-sm">{project.description}</div>
-           
            <div className="bg-gray-50/80 p-6 rounded-2xl border border-gray-100 space-y-5">
               <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm uppercase tracking-wider"><Edit size={16}/> 專案管理面板</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div>
-                      <label className="text-xs font-bold text-gray-500 mb-1.5 block ml-1">狀態</label>
-                      <select 
-                        className="w-full border border-gray-200 rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-theme/20 outline-none transition-all" 
-                        value={project.status} 
-                        onChange={(e)=>updateProject({status:e.target.value}, `將狀態更改為: ${e.target.options[e.target.selectedIndex].text}`)}
-                      >
-                          <option value="active">進行中</option>
-                          <option value="transferred">轉交給他人</option>
-                          <option value="completed">已完成</option>
-                      </select>
-                  </div>
-                  <div>
-                      <label className="text-xs font-bold text-gray-500 mb-1.5 block ml-1">緊急度</label>
-                      <select 
-                        className="w-full border border-gray-200 rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-theme/20 outline-none transition-all" 
-                        value={project.urgency} 
-                        onChange={(e)=>updateProject({urgency:e.target.value}, `將緊急度更改為: ${e.target.options[e.target.selectedIndex].text}`)}
-                      >
-                          <option value="normal">正常</option><option value="urgent">緊急</option><option value="very_urgent">非常緊急</option>
-                      </select>
-                  </div>
+                  <div><label className="text-xs font-bold text-gray-500 mb-1.5 block ml-1">狀態</label><select className="w-full border border-gray-200 rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-theme/20 outline-none transition-all" value={project.status} onChange={(e)=>updateProject({status:e.target.value}, `將狀態更改為: ${e.target.options[e.target.selectedIndex].text}`)}><option value="active">進行中</option><option value="transferred">轉交給他人</option><option value="completed">已完成</option></select></div>
+                  <div><label className="text-xs font-bold text-gray-500 mb-1.5 block ml-1">緊急度</label><select className="w-full border border-gray-200 rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-theme/20 outline-none transition-all" value={project.urgency} onChange={(e)=>updateProject({urgency:e.target.value}, `將緊急度更改為: ${e.target.options[e.target.selectedIndex].text}`)}><option value="normal">正常</option><option value="urgent">緊急</option><option value="very_urgent">非常緊急</option></select></div>
               </div>
-              <div>
-                  <label className="text-xs font-bold text-gray-500 mb-1.5 block ml-1">指派負責人</label>
-                  <select 
-                    className="w-full border border-gray-200 rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-theme/20 outline-none transition-all"
-                    value={project.assignedToEmployeeId || ''}
-                    onChange={(e) => {
-                        const newId = e.target.value;
-                        const newUser = users.find(u => u.employeeId === newId);
-                        const newName = newUser ? newUser.displayName : '未指派';
-                        updateProject({ assignedToEmployeeId: newId, assignedToName: newName }, `將負責人更改為: ${newName}`);
-                    }}
-                  >
-                    <option value="">未指派</option>
-                    {users.map(u => (
-                      <option key={u.id} value={u.employeeId}>{u.displayName} ({getDepartmentLabel(u.department)})</option>
-                    ))}
-                  </select>
-              </div>
+              <div><label className="text-xs font-bold text-gray-500 mb-1.5 block ml-1">指派負責人</label><select className="w-full border border-gray-200 rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-theme/20 outline-none transition-all" value={project.assignedToEmployeeId || ''} onChange={(e) => { const newId = e.target.value; const newUser = users.find(u => u.employeeId === newId); const newName = newUser ? newUser.displayName : '未指派'; updateProject({ assignedToEmployeeId: newId, assignedToName: newName }, `將負責人更改為: ${newName}`); }}><option value="">未指派</option>{users.map(u => (<option key={u.id} value={u.employeeId}>{u.displayName} ({getDepartmentLabel(u.department)})</option>))}</select></div>
            </div>
          </div>
-
          <div className="w-full lg:w-[400px] bg-gray-50 border border-gray-200 rounded-2xl flex flex-col overflow-hidden h-[400px] lg:h-auto shadow-inner mt-4 lg:mt-0">
             <div className="p-4 bg-white border-b border-gray-200 font-bold text-gray-700 flex items-center gap-2"><MessageSquare size={18}/> 專案討論 ({comments.length})</div>
             <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
-                {comments.map(c => (
-                    c.type === 'system' ? (
-                        <div key={c.id} className="flex items-center gap-3 my-3 opacity-80">
-                            <div className="h-px bg-gray-200 flex-1"></div>
-                            <span className="text-[10px] text-gray-500 font-medium bg-white border border-gray-100 px-3 py-1 rounded-full shadow-sm">{c.text} • {formatTime(c.createdAt)}</span>
-                            <div className="h-px bg-gray-200 flex-1"></div>
-                        </div>
-                    ) : (
-                        <div key={c.id} className="flex gap-3 items-start group">
-                             <div className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500 shrink-0 shadow-sm mt-1">{c.userName?.[0]}</div>
-                             <div className="flex-1 min-w-0">
-                                 <div className="flex justify-between items-baseline mb-1">
-                                     <span className="text-xs font-bold text-gray-700">{c.userName}</span>
-                                     <span className="text-[10px] text-gray-400 font-mono">{formatTime(c.createdAt)}</span>
-                                 </div>
-                                 <div className="bg-white p-3 rounded-2xl rounded-tl-none border border-gray-200 text-sm text-gray-800 shadow-sm break-words leading-relaxed group-hover:shadow-md transition-shadow">{c.text}</div>
-                             </div>
-                        </div>
-                    )
-                ))}
-                <div ref={commentsEndRef}></div>
+                {comments.map(c => (c.type === 'system' ? (<div key={c.id} className="flex items-center gap-3 my-3 opacity-80"><div className="h-px bg-gray-200 flex-1"></div><span className="text-[10px] text-gray-500 font-medium bg-white border border-gray-100 px-3 py-1 rounded-full shadow-sm">{c.text} • {formatTime(c.createdAt)}</span><div className="h-px bg-gray-200 flex-1"></div></div>) : (<div key={c.id} className="flex gap-3 items-start group"><div className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center text-xs font-bold text-gray-500 shrink-0 shadow-sm mt-1">{c.userName?.[0]}</div><div className="flex-1 min-w-0"><div className="flex justify-between items-baseline mb-1"><span className="text-xs font-bold text-gray-700">{c.userName}</span><span className="text-[10px] text-gray-400 font-mono">{formatTime(c.createdAt)}</span></div><div className="bg-white p-3 rounded-2xl rounded-tl-none border border-gray-200 text-sm text-gray-800 shadow-sm break-words leading-relaxed group-hover:shadow-md transition-shadow">{c.text}</div></div></div>)))}<div ref={commentsEndRef}></div>
             </div>
-            <div className="p-4 bg-white border-t border-gray-200">
-                <form onSubmit={handleSendComment} className="relative">
-                    <input 
-                        className="w-full border border-gray-300 rounded-xl py-3 pl-4 pr-12 text-sm focus:ring-2 focus:ring-theme focus:border-transparent outline-none bg-gray-50 focus:bg-white transition-all" 
-                        placeholder="輸入留言..." 
-                        value={newComment}
-                        onChange={(e) => setNewComment(e.target.value)}
-                    />
-                    <button type="submit" disabled={!newComment.trim()} className="absolute right-2 top-2 p-1.5 text-theme disabled:text-gray-300 hover:bg-theme-light rounded-lg transition-colors"><Send size={18}/></button>
-                </form>
-            </div>
+            <div className="p-4 bg-white border-t border-gray-200"><form onSubmit={handleSendComment} className="relative"><input className="w-full border border-gray-300 rounded-xl py-3 pl-4 pr-12 text-sm focus:ring-2 focus:ring-theme focus:border-transparent outline-none bg-gray-50 focus:bg-white transition-all" placeholder="輸入留言..." value={newComment} onChange={(e) => setNewComment(e.target.value)} /><button type="submit" disabled={!newComment.trim()} className="absolute right-2 top-2 p-1.5 text-theme disabled:text-gray-300 hover:bg-theme-light rounded-lg transition-colors"><Send size={18}/></button></form></div>
          </div>
        </div>
     </Modal>
@@ -767,91 +628,6 @@ export const VoucherPanel = ({ requests, pool, isAdmin, isManager, currentUser, 
         ))}</div>
     </div>
 );
-
-// ==========================================
-// --- Module: Views (Components) ---
-// ==========================================
-
-const AuthView = ({ onLoginSuccess, onToast, usersCount }) => {
-    const [mode, setMode] = useState('login');
-    const [loginId, setLoginId] = useState('');
-    const [loginPassword, setLoginPassword] = useState('');
-    const [registerData, setRegisterData] = useState({ name: '', employeeId: '', email: '', department: '企劃', password: '' });
-
-    const handleLogin = async (e) => {
-        e.preventDefault();
-        const cleanId = loginId.trim(); const cleanPwd = loginPassword.trim();
-        if(!cleanId || !cleanPwd) return onToast('請輸入完整的帳號與密碼', 'error');
-        try {
-            const uc = await signInWithEmailAndPassword(auth, `${cleanId}@hands.com`, cleanPwd);
-            const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', uc.user.uid));
-            if (snap.exists()) {
-                const userData = snap.data();
-                await updateDoc(snap.ref, { lastActive: serverTimestamp(), isOnline: true });
-                onLoginSuccess(userData);
-                onToast('登入成功');
-            } else { onToast('找不到員工資料', 'error'); }
-        } catch (e) { console.error(e); onToast('帳號或密碼錯誤 (或未註冊)', 'error'); await addLog(null, '登入失敗', `ID: ${cleanId}`); }
-    };
-
-    const handleRegister = async (e) => {
-        e.preventDefault();
-        const cleanId = registerData.employeeId.trim();
-        const cleanPwd = registerData.password.trim();
-        const cleanName = registerData.name.trim();
-        if(cleanPwd.length < 6 || cleanPwd.length > 12) return onToast('密碼需 6~12 碼', 'error');
-        if(!cleanName || !cleanId) return onToast('資料不完整', 'error');
-        try {
-            const uc = await createUserWithEmailAndPassword(auth, `${cleanId}@hands.com`, cleanPwd);
-            const user = userCredential.user;
-            const isFirstRun = usersCount === 0; 
-            const role = isFirstRun ? 'admin' : 'user';
-
-            const userData = { 
-                uid: uc.user.uid, displayName: cleanName, employeeId: cleanId, email: registerData.email,
-                department: registerData.department, role, isOnline: true, 
-                lastActive: serverTimestamp(), createdAt: serverTimestamp() 
-            };
-            
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', uc.user.uid), userData);
-            await sendNotification(uc.user.uid, 'system', `歡迎加入！您的員工編號為：${cleanId}, 權限: ${role==='admin'?'管理員':'一般'}`);
-            await addLog(userData, '系統註冊', `${cleanName} 註冊 (${role})`);
-            onLoginSuccess(userData);
-            onToast('註冊成功，已自動登入');
-        } catch (e) { console.error(e); onToast(e.message, 'error'); }
-    };
-
-    return (
-        <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4 font-sans">
-            <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl w-full max-w-md border border-gray-100">
-                <div className="text-center mb-8">
-                    <div className="w-24 h-24 bg-gradient-to-br from-[#007130] to-[#004d21] rounded-3xl flex items-center justify-center mx-auto mb-6 text-white shadow-xl rotate-3"><FolderKanban size={48} /></div>
-                    <h1 className="text-3xl font-black text-gray-800 mb-2">台隆手創館</h1><h2 className="text-gray-400 font-medium">專案管理系統 {APP_VERSION}</h2>
-                </div>
-                {mode === 'login' ? (
-                    <form onSubmit={handleLogin} className="space-y-5 animate-fade-in">
-                        <div><label className="text-sm font-bold text-gray-600 ml-1">員工編號</label><input className="w-full border-2 border-gray-100 rounded-2xl p-4 bg-gray-50 text-lg outline-none focus:border-theme" placeholder="輸入編號" value={loginId} onChange={e=>setLoginId(e.target.value)} /></div>
-                        <div><label className="text-sm font-bold text-gray-600 ml-1">密碼</label><input type="password" className="w-full border-2 border-gray-100 rounded-2xl p-4 bg-gray-50 text-lg outline-none focus:border-theme" placeholder="輸入密碼" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} /></div>
-                        <button className="w-full bg-theme text-white font-bold py-4 rounded-2xl text-lg hover:shadow-xl transition flex items-center justify-center gap-2"><LogIn size={20}/> 登入</button>
-                        <div className="border-t pt-4 text-center"><button type="button" onClick={()=>setMode('register')} className="text-gray-400 hover:text-gray-600 font-bold">員工註冊</button></div>
-                    </form>
-                ) : (
-                    <form onSubmit={handleRegister} className="space-y-5 animate-fade-in">
-                        <div className="flex items-center gap-2 text-xl font-bold text-gray-800 mb-4"><button type="button" onClick={() => setMode('login')} className="p-1 -ml-1 text-gray-400 hover:text-theme transition-colors"><ArrowRightLeft size={20}/></button> 員工註冊</div>
-                        <input className="w-full border rounded-2xl p-4 bg-gray-50 outline-none focus:ring-2 ring-theme/50" placeholder="姓名" value={registerData.name} onChange={e=>setRegisterData({...registerData, name:e.target.value})} />
-                        <input className="w-full border rounded-2xl p-4 bg-gray-50 outline-none focus:ring-2 ring-theme/50" placeholder="Email" value={registerData.email} onChange={e=>setRegisterData({...registerData, email:e.target.value})} />
-                        <div className="grid grid-cols-2 gap-4">
-                            <input className="w-full border rounded-2xl p-4 bg-gray-50 outline-none" placeholder="編號" value={registerData.employeeId} onChange={e=>setRegisterData({...registerData, employeeId:e.target.value.replace(/\D/g,'')})} maxLength={6} />
-                            <select className="border rounded-2xl p-4 bg-gray-50 outline-none" value={registerData.department} onChange={e=>setRegisterData({...registerData, department:e.target.value})}>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select>
-                        </div>
-                        <input type="password" className="w-full border rounded-2xl p-4 bg-gray-50 outline-none" placeholder="密碼 (6-12位)" value={registerData.password} onChange={e=>setRegisterData({...registerData, password:e.target.value})} />
-                        <button className="w-full bg-theme text-white font-bold py-4 rounded-2xl text-lg hover:shadow-xl transition">註冊並登入</button>
-                    </form>
-                )}
-            </div>
-        </div>
-    );
-};
 
 // ==========================================
 // --- Module: Main App Component ---
@@ -1202,7 +978,7 @@ export default function App() {
             project={selectedProject} 
             onClose={()=>setSelectedProject(null)} 
             users={users} 
-            currentUser={currentUserProfile}
+            currentUser={userProfile} // Fixed: was currentUserProfile
             isAdmin={isAdmin}
           />
         )}
