@@ -876,12 +876,16 @@ const handleRegister = async (e) => {
         const isFirstRun = users.length === 0; 
         const role = isFirstRun ? 'admin' : 'user';
 
-        // 4. 只將「非機密」資料寫入 Firestore (注意：這裡不再存 password 欄位了！)
+        // 4. 只將「非機密」資料寫入 Firestore
         const userData = { 
-            uid: user.uid, // 使用 Firebase 產生的安全 UID
+            uid: user.uid,
             displayName: registerData.name, 
-            employeeId: registerData.employeeId, 
-            // email: registerData.email, // 如果您想存真實 email 可以留著，不想存就拿掉
+            employeeId: registerData.employeeId,
+            
+            // --- 請修改這一行 (拿掉註解) ---
+            email: registerData.email, // 這裡存的是使用者輸入的真實 Email，用來收信
+            // ---------------------------
+            
             department: registerData.department, 
             role: role, 
             isOnline: true, 
@@ -1483,6 +1487,7 @@ const handleRegister = async (e) => {
   );
 
 }
+
 
 
 
