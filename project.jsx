@@ -72,30 +72,6 @@ const notifyGroup = async (users, roleFilter, type, message) => {
     }
 };
 
-// --- Helper Functions (Email) ---
-const sendEmail = async (toEmail, subject, content) => {
-    if (!toEmail || !toEmail.includes('@')) return; 
-    try {
-        await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                to: toEmail,
-                subject: `【台隆專案通知】${subject}`,
-                html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
-                        <h2 style="color: #007130;">Hands PM System 通知</h2>
-                        <p style="font-size: 16px;">${content}</p>
-                        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-                        <p style="font-size: 12px; color: #888;">此為系統自動發送，請勿直接回覆。</p>
-                       </div>`
-            })
-        });
-        console.log(`Email sent to ${toEmail}`);
-    } catch (e) {
-        console.error("Email send failed:", e);
-    }
-};
-
 // --- Hooks ---
 const useSystemData = (authUser, userProfile) => {
   const [data, setData] = useState({
@@ -546,37 +522,7 @@ const ProjectsView = ({ projects, users, currentUser, isAdmin, onAdd, onSelect, 
 };
 
 // --- Project Details with Discussion Modal ---
-const updateProject = async (updates, message) => {
-      try {
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', project.id), updates);
-          if (message) await handleAddSystemComment(message);
-          
-          // 1. 處理指派變更通知 + Email
-          if (updates.assignedToEmployeeId && updates.assignedToEmployeeId !== project.assignedToEmployeeId) {
-              const assignedUser = users.find(u => u.employeeId === updates.assignedToEmployeeId);
-              if (assignedUser) {
-                  await sendNotification(assignedUser.uid, 'assignment', `${currentUser.displayName} 將專案「${project.title}」指派給了您`, project.id);
-                  
-                  // 發送 Email (確認該員工有 email 資料)
-                  if (assignedUser.email) {
-                      await sendEmail(assignedUser.email, `新專案指派：${project.title}`, `Hi ${assignedUser.displayName},<br/><br/>${currentUser.displayName} 剛剛指派了一個新專案給您：<br/><b>${project.title}</b><br/><br/>請登入系統查看詳情。`);
-                  }
-              }
-          }
-
-          // 2. 處理狀態變更通知 + Email (給建立者)
-          if (updates.status && project.createdBy !== currentUser.employeeId) {
-              const creator = users.find(u => u.employeeId === project.createdBy);
-              if (creator && creator.email) {
-                  await sendEmail(
-                      creator.email,
-                      `專案狀態更新：${project.title}`,
-                      `Hi ${creator.displayName},<br/><br/>您建立的專案 <b>${project.title}</b> 狀態已更新為：<b>${updates.status}</b><br/>操作者：${currentUser.displayName}`
-                  );
-              }
-          }
-      } catch (e) { console.error(e); }
-  };
+const ProjectDetailsModal = ({ project, onClose, users, currentUser, isAdmin }) => {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const commentsEndRef = useRef(null);
@@ -876,16 +822,12 @@ const handleRegister = async (e) => {
         const isFirstRun = users.length === 0; 
         const role = isFirstRun ? 'admin' : 'user';
 
-        // 4. 只將「非機密」資料寫入 Firestore
+        // 4. 只將「非機密」資料寫入 Firestore (注意：這裡不再存 password 欄位了！)
         const userData = { 
-            uid: user.uid,
+            uid: user.uid, // 使用 Firebase 產生的安全 UID
             displayName: registerData.name, 
-            employeeId: registerData.employeeId,
-            
-            // --- 請修改這一行 (拿掉註解) ---
-            email: registerData.email, // 這裡存的是使用者輸入的真實 Email，用來收信
-            // ---------------------------
-            
+            employeeId: registerData.employeeId, 
+            // email: registerData.email, // 如果您想存真實 email 可以留著，不想存就拿掉
             department: registerData.department, 
             role: role, 
             isOnline: true, 
@@ -1020,17 +962,6 @@ const handleRegister = async (e) => {
               </div>
               
               <input className="w-full border border-gray-200 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-theme/50 focus:border-theme transition-all bg-gray-50 focus:bg-white" placeholder="姓名" value={registerData.name} onChange={e=>setRegisterData({...registerData, name:e.target.value})} required />
-
-<div className="relative">
-                  <input 
-                    type="email" 
-                    className="w-full border border-gray-200 rounded-2xl p-4 pl-12 outline-none focus:ring-2 focus:ring-theme/50 focus:border-theme transition-all bg-gray-50 focus:bg-white" 
-                    placeholder="電子信箱 (用於接收通知)" 
-                    value={registerData.email} 
-                    onChange={e=>setRegisterData({...registerData, email:e.target.value})} 
-                  />
-                  <Mail className="absolute left-4 top-4 text-gray-400" size={20} />
-              </div>
               
               <div className="grid grid-cols-2 gap-4">
                   <input className="w-full border border-gray-200 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-theme/50 focus:border-theme transition-all bg-gray-50 focus:bg-white" placeholder="員工編號" value={registerData.employeeId} onChange={e=>setRegisterData({...registerData, employeeId:e.target.value.replace(/\D/g, '')})} maxLength={6} required />
@@ -1362,14 +1293,6 @@ const handleRegister = async (e) => {
                
                if(assignee) {
                    await sendNotification(assignee.uid, 'assignment', `${currentUserProfile.displayName} 將新專案「${formData.title}」指派給了您`, docRef.id);
-                 if (assignee.email) {
-        await sendEmail(
-            assignee.email, 
-            `新專案指派：${formData.title}`,
-            `Hi ${assignee.displayName},<br/><br/>${currentUserProfile.displayName} 剛剛指派了一個新專案給您：<br/><b>${formData.title}</b><br/><br/>請登入系統查看詳情。`
-        );
-    }
-}
                }
                showToast(setToast, '專案已建立');
                toggleModal('project', false);
@@ -1498,10 +1421,5 @@ const handleRegister = async (e) => {
   );
 
 }
-
-
-
-
-
 
 
