@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './project.jsx' // 引用您剛剛改名的檔案
+import App from './project' // 這裡引入您的 project.jsx
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
