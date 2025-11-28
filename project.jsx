@@ -1020,6 +1020,17 @@ const handleRegister = async (e) => {
               </div>
               
               <input className="w-full border border-gray-200 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-theme/50 focus:border-theme transition-all bg-gray-50 focus:bg-white" placeholder="姓名" value={registerData.name} onChange={e=>setRegisterData({...registerData, name:e.target.value})} required />
+
+<div className="relative">
+                  <input 
+                    type="email" 
+                    className="w-full border border-gray-200 rounded-2xl p-4 pl-12 outline-none focus:ring-2 focus:ring-theme/50 focus:border-theme transition-all bg-gray-50 focus:bg-white" 
+                    placeholder="電子信箱 (用於接收通知)" 
+                    value={registerData.email} 
+                    onChange={e=>setRegisterData({...registerData, email:e.target.value})} 
+                  />
+                  <Mail className="absolute left-4 top-4 text-gray-400" size={20} />
+              </div>
               
               <div className="grid grid-cols-2 gap-4">
                   <input className="w-full border border-gray-200 rounded-2xl p-4 outline-none focus:ring-2 focus:ring-theme/50 focus:border-theme transition-all bg-gray-50 focus:bg-white" placeholder="員工編號" value={registerData.employeeId} onChange={e=>setRegisterData({...registerData, employeeId:e.target.value.replace(/\D/g, '')})} maxLength={6} required />
@@ -1487,6 +1498,7 @@ const handleRegister = async (e) => {
   );
 
 }
+
 
 
 
