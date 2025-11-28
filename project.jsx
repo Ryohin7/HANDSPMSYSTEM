@@ -13,11 +13,11 @@ import {
   Menu, X, MessageSquare, UserCircle, Hash, Mail, CalendarClock, Send, LogIn,
   CheckCircle2, AlertCircle, Grid, List, Edit, ArrowRight, Briefcase, Bell,
   CalendarDays, Zap, AlertTriangle, Flame, Gift, CheckSquare, Ticket, UserCheck, BriefcaseBusiness,
-  Lock, KeyRound, Timer, UserCog, LogOut, FileText, Info, Archive, Undo2, ArrowRightLeft, UserPlus, ChevronRight
+  Lock, KeyRound, Timer, UserCog, LogOut, FileText, Info, Archive, Undo2, ArrowRightLeft, UserPlus, ChevronRight, BellRing
 } from 'lucide-react';
 
 // --- Configuration & Constants ---
-const APP_VERSION = 'v2.2.7 Silent Auth Fix';
+const APP_VERSION = 'v2.2.8 Web Push Notification';
 const THEME_COLOR = '#007130';
 const DEPARTMENTS = ['企劃', '設計', '採購', '營業', '資訊', '營運'];
 const DEPARTMENT_ICONS = {
@@ -32,15 +32,12 @@ const VOUCHER_REASONS = ['活動結束退換貨補券', '客訴或個案','其�
 const MEMBER_CHANGE_TYPES = ['變更手機號碼', '變更生日', '刪除會員','其他'];
 
 const CHANGELOGS = [
+    { version: 'v2.2.8', date: '2025-06-07', content: ['移除 Email 通知功能', '新增 Web App 推播通知 (Web Push)', '優化通知中心權限請求流程'] },
     { version: 'v2.2.7', date: '2025-06-06', content: ['優化身份驗證錯誤處理，隱藏 Token Mismatch 錯誤訊息'] },
     { version: 'v2.2.6', date: '2025-06-06', content: ['修復身份驗證權杖錯誤 (Auth Token Mismatch) 導致的崩潰問題'] },
     { version: 'v2.2.5', date: '2025-06-06', content: ['密碼長度限制調整為 6~12 位數', '優化註冊成功與專案指派的 Email 通知內容'] },
     { version: 'v2.2.4', date: '2025-06-05', content: ['修復新增專案時的語法錯誤', '確保 Email 通知功能正常運作'] },
     { version: 'v2.2.3', date: '2025-06-05', content: ['新增註冊自動發送歡迎信功能', '修復專案詳情頁面載入錯誤', '優化資料庫欄位寫入邏輯'] },
-    { version: 'v2.2.2', date: '2025-06-04', content: ['電子券申請新增「駁回」功能', '開放主管 (Manager) 權限可核准或駁回電子券申請'] },
-    { version: 'v2.2.1', date: '2025-06-03', content: ['全面應用部門 Emoji 圖示於選單與列表中', '優化使用者介面視覺細節'] },
-    { version: 'v2.2.0', date: '2025-06-02', content: ['新增部門對應 Emoji 圖示', '管理員名稱新增皇冠 👑 標示', '實作資料權限分流'] },
-    { version: 'v2.1.1', date: '2025-06-01', content: ['修復新增專案指派歸類錯誤', '移除其他專案標題刪除線', '優化專案詳情手機版滾動體驗'] },
 ];
 
 // Firebase Init
@@ -74,39 +71,6 @@ const notifyGroup = async (users, roleFilter, type, message) => {
     const targets = users.filter(roleFilter);
     for (const user of targets) {
         await sendNotification(user.uid, type, message);
-    }
-};
-
-// --- Helper Functions (Email) ---
-const sendEmail = async (toEmail, subject, content) => {
-    if (!toEmail || !toEmail.includes('@')) return; 
-    try {
-        // 這裡模擬發送 API 請求，實際需配合後端服務
-        // 如果是在模擬環境，這裡僅會 Log 輸出
-        console.log(`[Mock Email Send] To: ${toEmail}, Subject: ${subject}`);
-        
-        await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                to: toEmail,
-                subject: `【台隆專案通知】${subject}`,
-                html: `<div style="font-family: 'Noto Sans TC', sans-serif; padding: 24px; border: 1px solid #e5e7eb; border-radius: 16px; max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-                        <div style="text-align: center; margin-bottom: 24px;">
-                            <h2 style="color: #007130; margin: 0; font-size: 24px;">Hands PM System</h2>
-                            <p style="color: #6b7280; margin: 4px 0 0 0; font-size: 14px;">專案管理系統通知</p>
-                        </div>
-                        <div style="background-color: #f9fafb; padding: 20px; border-radius: 12px; border: 1px solid #f3f4f6;">
-                            <p style="font-size: 16px; line-height: 1.6; color: #374151; margin: 0;">${content}</p>
-                        </div>
-                        <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-                        <p style="font-size: 12px; color: #9ca3af; text-align: center;">此為系統自動發送，請勿直接回覆。</p>
-                       </div>`
-            })
-        }).catch(err => console.warn("Email API unreachable in demo mode, but logic is correct.", err));
-        
-    } catch (e) {
-        console.error("Email send failed:", e);
     }
 };
 
@@ -145,6 +109,35 @@ const useSystemData = (authUser, userProfile) => {
 
     const unsubs = collections.map(({ key, path, sort, isDate, filter }) => 
       onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', path), (snap) => {
+        
+        // --- Web Push Logic ---
+        if (key === 'notifications') {
+            snap.docChanges().forEach((change) => {
+                if (change.type === 'added') {
+                    const notifData = change.doc.data();
+                    const isForMe = userProfile && notifData.targetUserId === userProfile.uid;
+                    
+                    // 簡單防呆：只跳出建立時間在最近 10 秒內的通知，避免重新整理時被舊通知轟炸
+                    const now = Date.now();
+                    const notifTime = notifData.createdAt?.toMillis ? notifData.createdAt.toMillis() : now;
+                    const isRecent = (now - notifTime) < 10000;
+
+                    if (isForMe && isRecent && Notification.permission === 'granted') {
+                        try {
+                            new Notification('Hands PM System', { 
+                                body: notifData.message,
+                                icon: '/vite.svg', // 嘗試使用預設 icon
+                                tag: change.doc.id // 防止重複
+                            });
+                        } catch (e) {
+                            console.error("Push notification failed", e);
+                        }
+                    }
+                }
+            });
+        }
+        // ---------------------
+
         let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         if (filter) items = items.filter(filter);
         if (sort) {
@@ -274,6 +267,16 @@ const UrgencyBadge = ({ level }) => {
 
 const Sidebar = ({ activeTab, setActiveTab, currentUser, unreadCount, notifications, markAsRead, onNotificationClick, isMobile, onCloseMobile, onLogout, onShowChangelog }) => {
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifPermission, setNotifPermission] = useState(Notification.permission);
+
+  const requestNotifPermission = () => {
+      Notification.requestPermission().then(permission => {
+          setNotifPermission(permission);
+          if (permission === 'granted') {
+              new Notification('Hands PM System', { body: '通知已開啟！' });
+          }
+      });
+  };
   
   const menuItems = [
     { id: 'dashboard', label: '儀表板', icon: LayoutDashboard },
@@ -293,14 +296,22 @@ const Sidebar = ({ activeTab, setActiveTab, currentUser, unreadCount, notificati
       </div>
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         <div className="mb-4 relative">
-           <button 
-             onClick={() => setShowNotifications(!showNotifications)}
-             className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold border transition-all duration-200 ${showNotifications ? 'bg-theme text-white border-theme shadow-md ring-2 ring-theme/20' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-           >
-             <Bell size={20} className={unreadCount > 0 && !showNotifications ? 'animate-bounce' : ''} />
-             <span>通知中心</span>
-             {unreadCount > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm">{unreadCount}</span>}
-           </button>
+           <div className="flex gap-2">
+               <button 
+                 onClick={() => setShowNotifications(!showNotifications)}
+                 className={`flex-1 flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-bold border transition-all duration-200 ${showNotifications ? 'bg-theme text-white border-theme shadow-md ring-2 ring-theme/20' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+               >
+                 <Bell size={20} className={unreadCount > 0 && !showNotifications ? 'animate-bounce' : ''} />
+                 <span>通知中心</span>
+                 {unreadCount > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm">{unreadCount}</span>}
+               </button>
+               
+               {notifPermission === 'default' && (
+                   <button onClick={requestNotifPermission} className="px-3 rounded-2xl border border-gray-200 bg-white text-gray-400 hover:text-theme hover:border-theme transition-colors" title="開啟推播通知">
+                       <BellRing size={20} />
+                   </button>
+               )}
+           </div>
 
            {/* Notification Dropdown */}
            {showNotifications && (
@@ -595,25 +606,13 @@ const ProjectDetailsModal = ({ project, onClose, users, currentUser, isAdmin }) 
               const assignedUser = users.find(u => u.employeeId === updates.assignedToEmployeeId);
               if (assignedUser) {
                   await sendNotification(assignedUser.uid, 'assignment', `${currentUser.displayName} 將專案「${project.title}」指派給了您`, project.id);
-                  // 發送 Email (確認該員工有 email 資料)
-                  if (assignedUser.email) {
-                      await sendEmail(
-                          assignedUser.email, 
-                          `新專案指派：${project.title}`, 
-                          `Hi ${assignedUser.displayName},<br/><br/>${currentUser.displayName} 剛剛指派了一個新專案給您：<br/><br/><b>專案名稱：${project.title}</b><br/><b>專案描述：${project.description}</b><br/><br/>請登入系統查看詳情。`
-                      );
-                  }
               }
           }
-           // 2. 處理狀態變更通知 + Email (給建立者)
+           // 2. 處理狀態變更通知 (給建立者)
            if (updates.status && project.createdBy !== currentUser.employeeId) {
             const creator = users.find(u => u.employeeId === project.createdBy);
-            if (creator && creator.email) {
-                await sendEmail(
-                    creator.email,
-                    `專案狀態更新：${project.title}`,
-                    `Hi ${creator.displayName},<br/><br/>您建立的專案 <b>${project.title}</b> 狀態已更新為：<b>${updates.status}</b><br/>操作者：${currentUser.displayName}`
-                );
+            if (creator) {
+                await sendNotification(creator.uid, 'system', `您的專案「${project.title}」狀態已更新為：${updates.status}`, project.id);
             }
         }
       } catch (e) { console.error(e); }
@@ -918,15 +917,9 @@ const handleRegister = async (e) => {
         
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', user.uid), userData);
         
-        // --- 優化：發送歡迎信 ---
-        if (registerData.email) {
-            await sendEmail(
-                registerData.email,
-                '歡迎加入 Hands PM System',
-                `Hi ${registerData.name},<br/><br/>歡迎加入台隆手創館專案管理系統！<br/><br/>您的帳號資訊如下：<br/><b>員工編號：${registerData.employeeId}</b> (登入帳號)<br/><b>預設權限：${role === 'admin' ? '管理員' : '一般用戶'}</b><br/><br/>請妥善保管您的密碼。`
-            );
-        }
-        // ---------------------
+        // --- 改為發送系統內部通知 ---
+        await sendNotification(user.uid, 'system', `歡迎加入！您的員工編號為：${registerData.employeeId}，預設權限為：${role === 'admin' ? '管理員' : '一般用戶'}`);
+        // -----------------------
 
         await addLog(userData, '系統註冊', `${registerData.name} 註冊了帳號 (角色: ${role})`);
         
@@ -1396,13 +1389,6 @@ const handleRegister = async (e) => {
                
                if(assignee) {
                    await sendNotification(assignee.uid, 'assignment', `${currentUserProfile.displayName} 將新專案「${formData.title}」指派給了您`, docRef.id);
-                 if (assignee.email) {
-                    await sendEmail(
-                        assignee.email, 
-                        `新專案指派：${formData.title}`,
-                        `Hi ${assignee.displayName},<br/><br/>${currentUserProfile.displayName} 剛剛指派了一個新專案給您：<br/><br/><b>專案名稱：${formData.title}</b><br/><b>專案描述：${formData.description || '無描述'}</b><br/><br/>請登入系統查看詳情。`
-                    );
-                }
                }
                showToast(setToast, '專案已建立');
                toggleModal('project', false);
