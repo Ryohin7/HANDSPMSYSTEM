@@ -72,6 +72,30 @@ const notifyGroup = async (users, roleFilter, type, message) => {
     }
 };
 
+// --- Helper Functions (Email) ---
+const sendEmail = async (toEmail, subject, content) => {
+    if (!toEmail || !toEmail.includes('@')) return; // 簡單檢查
+    try {
+        await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                to: toEmail,
+                subject: `【台隆專案通知】${subject}`,
+                html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                        <h2 style="color: #007130;">Hands PM System 通知</h2>
+                        <p style="font-size: 16px;">${content}</p>
+                        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+                        <p style="font-size: 12px; color: #888;">此為系統自動發送，請勿直接回覆。</p>
+                       </div>`
+            })
+        });
+        console.log(`Email sent to ${toEmail}`);
+    } catch (e) {
+        console.error("Email send failed:", e);
+    }
+};
+
 // --- Hooks ---
 const useSystemData = (authUser, userProfile) => {
   const [data, setData] = useState({
@@ -1293,6 +1317,14 @@ const handleRegister = async (e) => {
                
                if(assignee) {
                    await sendNotification(assignee.uid, 'assignment', `${currentUserProfile.displayName} 將新專案「${formData.title}」指派給了您`, docRef.id);
+                 if (assignee.email) {
+        await sendEmail(
+            assignee.email, 
+            `新專案指派：${formData.title}`,
+            `Hi ${assignee.displayName},<br/><br/>${currentUserProfile.displayName} 剛剛指派了一個新專案給您：<br/><b>${formData.title}</b><br/><br/>請登入系統查看詳情。`
+        );
+    }
+}
                }
                showToast(setToast, '專案已建立');
                toggleModal('project', false);
@@ -1421,6 +1453,7 @@ const handleRegister = async (e) => {
   );
 
 }
+
 
 
 
