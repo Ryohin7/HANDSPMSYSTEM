@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
-  getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut
+  getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword
 } from 'firebase/auth';
 import { 
   getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, 
@@ -734,63 +735,82 @@ export default function App() {
 
   const toggleModal = (key, val = true) => setModals(prev => ({ ...prev, [key]: val }));
   
-  const handleLogin = async (e) => {
+const handleLogin = async (e) => {
     e.preventDefault();
-    const user = users.find(u => u.employeeId === loginId);
-    if (!user) {
-        showToast(setToast, '找不到此員工編號', 'error');
-        await addLog(null, '登入異常', `嘗試登入無效帳號 ID: ${loginId}`);
-        setLoginPassword('');
-        return;
+    try {
+        // 1. 技巧：將員工編號組合成 Email 進行驗證
+        const email = `${loginId}@hands.com`;
+        
+        // 2. 呼叫 Firebase 進行安全登入
+        const userCredential = await signInWithEmailAndPassword(auth, email, loginPassword);
+        const user = userCredential.user;
+
+        // 3. 登入成功後，從資料庫撈取該用戶的個人資料 (角色、部門等)
+        // 這裡我們從 users 陣列中找 (因為 useSystemData 已經讀取了 metadata)
+        // *注意*：為了更穩定的作法，建議直接讀取單筆 doc，但為了配合您現有架構，我們先從 users 找
+        const userMeta = users.find(u => u.uid === user.uid);
+        
+        if (userMeta) {
+            setCurrentUserProfile(userMeta);
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', user.uid), { lastActive: serverTimestamp(), isOnline: true });
+            showToast(setToast, '登入成功');
+        } else {
+            // 雖然帳號密碼對，但資料庫沒資料 (極少見)
+            showToast(setToast, '找不到使用者資料', 'error');
+        }
+
+    } catch (error) {
+        console.error(error);
+        showToast(setToast, '登入失敗：編號或密碼錯誤', 'error');
+        await addLog(null, '登入失敗', `ID: ${loginId} 嘗試登入失敗`);
     }
-    if (user.password !== loginPassword) {
-        showToast(setToast, '密碼錯誤', 'error');
-        await addLog(null, '登入異常', `用戶 ${user.displayName} (${user.employeeId}) 密碼輸入錯誤`);
-        setLoginPassword('');
-        return;
-    }
-    setCurrentUserProfile(user);
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', user.id), { lastActive: serverTimestamp(), isOnline: true });
   };
 
-  const handleLogout = () => {
-      setCurrentUserProfile(null);
-      setLoginPassword('');
-      setAuthMode('login');
-  };
-
-  const handleRegister = async (e) => {
+const handleRegister = async (e) => {
     e.preventDefault();
     if(!registerData.password) { showToast(setToast, '請設定密碼', 'error'); return; }
     if(!registerData.name || !registerData.employeeId) { showToast(setToast, '請填寫完整資料', 'error'); return; }
-    
-    if(users.some(u => u.employeeId === registerData.employeeId)) {
-        showToast(setToast, '此員工編號已註冊', 'error');
-        return;
+
+    try {
+        // 1. 技巧：將員工編號組合成 Email
+        const email = `${registerData.employeeId}@hands.com`;
+        
+        // 2. 建立安全帳號 (這一步會自動加密密碼)
+        const userCredential = await createUserWithEmailAndPassword(auth, email, registerData.password);
+        const user = userCredential.user;
+        
+        // 3. 判斷權限 (如果是第一個人，給 admin，否則 user)
+        // 注意：這裡可能有並發問題，但簡單版先這樣寫
+        const isFirstRun = users.length === 0; 
+        const role = isFirstRun ? 'admin' : 'user';
+
+        // 4. 只將「非機密」資料寫入 Firestore (注意：這裡不再存 password 欄位了！)
+        const userData = { 
+            uid: user.uid, // 使用 Firebase 產生的安全 UID
+            displayName: registerData.name, 
+            employeeId: registerData.employeeId, 
+            // email: registerData.email, // 如果您想存真實 email 可以留著，不想存就拿掉
+            department: registerData.department, 
+            role: role, 
+            isOnline: true, 
+            lastActive: serverTimestamp(), 
+            createdAt: serverTimestamp() 
+        };
+        
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', user.uid), userData);
+        await addLog(userData, '系統註冊', `${registerData.name} 註冊了帳號 (角色: ${role})`);
+        
+        setCurrentUserProfile(userData);
+        showToast(setToast, '註冊成功，已自動登入');
+
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'auth/email-already-in-use') {
+            showToast(setToast, '此員工編號已註冊過', 'error');
+        } else {
+            showToast(setToast, '註冊失敗: ' + error.message, 'error');
+        }
     }
-
-    const uid = 'user_' + Date.now();
-    const isFirstRun = users.length === 0;
-    const role = isFirstRun ? 'admin' : 'user';
-
-    const userData = { 
-        uid, 
-        displayName: registerData.name, 
-        employeeId: registerData.employeeId, 
-        email: registerData.email, 
-        department: registerData.department, 
-        password: registerData.password, 
-        role: role, 
-        isOnline: true, 
-        lastActive: serverTimestamp(), 
-        createdAt: serverTimestamp() 
-    };
-    
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', uid), userData);
-    await addLog(userData, '系統註冊', `${registerData.name} 註冊了帳號 (角色: ${role})`);
-    
-    setCurrentUserProfile(userData);
-    showToast(setToast, '註冊成功，已自動登入');
   };
 
   const genericAdd = async (collectionName, data, successMsg) => {
@@ -1363,3 +1383,4 @@ export default function App() {
   );
 
 }
+
