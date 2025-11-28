@@ -13,11 +13,11 @@ import {
   Menu, X, MessageSquare, UserCircle, Hash, Mail, CalendarClock, Send, LogIn,
   CheckCircle2, AlertCircle, Grid, List, Edit, ArrowRight, Briefcase, Bell,
   CalendarDays, Zap, AlertTriangle, Flame, Gift, CheckSquare, Ticket, UserCheck, BriefcaseBusiness,
-  Lock, KeyRound, Timer, UserCog, LogOut, FileText, Info, Archive, Undo2, ArrowRightLeft, UserPlus, ChevronRight, BellRing
+  Lock, KeyRound, Timer, UserCog, LogOut, FileText, Info, Archive, Undo2, ArrowRightLeft, UserPlus, ChevronRight, BellRing, Megaphone
 } from 'lucide-react';
 
 // --- Configuration & Constants ---
-const APP_VERSION = 'v2.2.8 Web Push Notification';
+const APP_VERSION = 'v2.2.9 Notification Center & Broadcast';
 const THEME_COLOR = '#007130';
 const DEPARTMENTS = ['企劃', '設計', '採購', '營業', '資訊', '營運'];
 const DEPARTMENT_ICONS = {
@@ -32,12 +32,12 @@ const VOUCHER_REASONS = ['活動結束退換貨補券', '客訴或個案','其�
 const MEMBER_CHANGE_TYPES = ['變更手機號碼', '變更生日', '刪除會員','其他'];
 
 const CHANGELOGS = [
+    { version: 'v2.2.9', date: '2025-06-07', content: ['新增管理員「系統廣播」功能，可推播公告給所有用戶', '完善通知中心邏輯：包含留言、審核結果與新申請通知', '優化專案留言通知機制'] },
     { version: 'v2.2.8', date: '2025-06-07', content: ['移除 Email 通知功能', '新增 Web App 推播通知 (Web Push)', '優化通知中心權限請求流程'] },
     { version: 'v2.2.7', date: '2025-06-06', content: ['優化身份驗證錯誤處理，隱藏 Token Mismatch 錯誤訊息'] },
     { version: 'v2.2.6', date: '2025-06-06', content: ['修復身份驗證權杖錯誤 (Auth Token Mismatch) 導致的崩潰問題'] },
     { version: 'v2.2.5', date: '2025-06-06', content: ['密碼長度限制調整為 6~12 位數', '優化註冊成功與專案指派的 Email 通知內容'] },
     { version: 'v2.2.4', date: '2025-06-05', content: ['修復新增專案時的語法錯誤', '確保 Email 通知功能正常運作'] },
-    { version: 'v2.2.3', date: '2025-06-05', content: ['新增註冊自動發送歡迎信功能', '修復專案詳情頁面載入錯誤', '優化資料庫欄位寫入邏輯'] },
 ];
 
 // Firebase Init
@@ -372,10 +372,12 @@ const Sidebar = ({ activeTab, setActiveTab, currentUser, unreadCount, notificati
   );
 };
 
-const DashboardView = ({ projects, users, myCount, isAdmin, schedules, logs, openScheduleModal, deleteSchedule }) => {
+const DashboardView = ({ projects, users, myCount, isAdmin, schedules, logs, openScheduleModal, deleteSchedule, onBroadcast }) => {
   const today = new Date();
   today.setHours(0,0,0,0);
   
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+
   const currentSchedule = schedules.find(s => {
       const start = new Date(s.startDate);
       const end = new Date(s.endDate);
@@ -451,30 +453,53 @@ const DashboardView = ({ projects, users, myCount, isAdmin, schedules, logs, ope
         {isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
-            <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2.5"><CalendarDays size={20} className="text-theme"/>活動檔期列表</h3>
-                <button onClick={openScheduleModal} className="text-xs bg-theme text-white px-4 py-2 rounded-xl font-bold hover:bg-[#005a26] transition-colors shadow-sm shadow-theme/20">管理檔期</button>
+                <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2.5"><CalendarDays size={20} className="text-theme"/>活動檔期列表</h3>
+                    <button onClick={openScheduleModal} className="text-xs bg-theme text-white px-4 py-2 rounded-xl font-bold hover:bg-[#005a26] transition-colors shadow-sm shadow-theme/20">管理檔期</button>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                    <thead className="bg-gray-50/50 text-gray-500 font-bold border-b border-gray-100"><tr><th className="px-8 py-4">名稱</th><th className="px-8 py-4">區間</th><th className="px-8 py-4 text-right">操作</th></tr></thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {schedules.length === 0 ? <tr><td colSpan="3" className="px-8 py-12 text-center text-gray-400">無資料</td></tr> : schedules.map(s => (
+                        <tr key={s.id} className="hover:bg-gray-50 transition-colors"><td className="px-8 py-4 font-bold text-gray-700">{s.name}</td><td className="px-8 py-4 font-mono text-gray-500">{s.startDate} ~ {s.endDate}</td>
+                        <td className="px-8 py-4 text-right"><button onClick={() => deleteSchedule(s.id)} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-all"><Trash2 size={18}/></button></td></tr>
+                        ))}
+                    </tbody>
+                    </table>
+                </div>
             </div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50/50 text-gray-500 font-bold border-b border-gray-100"><tr><th className="px-8 py-4">名稱</th><th className="px-8 py-4">區間</th><th className="px-8 py-4 text-right">操作</th></tr></thead>
-                <tbody className="divide-y divide-gray-100">
-                    {schedules.length === 0 ? <tr><td colSpan="3" className="px-8 py-12 text-center text-gray-400">無資料</td></tr> : schedules.map(s => (
-                    <tr key={s.id} className="hover:bg-gray-50 transition-colors"><td className="px-8 py-4 font-bold text-gray-700">{s.name}</td><td className="px-8 py-4 font-mono text-gray-500">{s.startDate} ~ {s.endDate}</td>
-                    <td className="px-8 py-4 text-right"><button onClick={() => deleteSchedule(s.id)} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-all"><Trash2 size={18}/></button></td></tr>
-                    ))}
-                </tbody>
-                </table>
-            </div>
-            </div>
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col h-[450px]">
-            <div className="px-6 py-6 border-b border-gray-100 bg-gray-50/50"><h3 className="font-bold text-gray-800 flex items-center gap-2.5"><Clock size={20} className="text-gray-400"/>系統日誌 (異常)</h3></div>
-            <div className="overflow-y-auto flex-1 p-0 custom-scrollbar"><table className="w-full text-sm"><tbody className="divide-y divide-gray-100">{logs.slice(0, 15).map(l => (
-                <tr key={l.id} className="hover:bg-gray-50 transition-colors"><td className="px-6 py-3.5">
-                    <div className="flex justify-between text-xs mb-1.5 font-bold text-gray-700"><span>{l.userName}</span><span className="text-gray-400 font-medium font-mono">{formatTime(l.timestamp)}</span></div>
-                    <p className={`text-xs truncate leading-relaxed ${(l.action.includes('異常') || l.action.includes('錯誤') || l.action.includes('失敗')) ? 'text-red-600 font-bold' : 'text-gray-500'}`}>[{l.action}] {l.details}</p>
-                </td></tr>
-            ))}</tbody></table></div>
+            
+            <div className="space-y-6">
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col p-6 relative overflow-hidden group">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-3 bg-orange-50 text-orange-500 rounded-xl"><Megaphone size={20} /></div>
+                        <h3 className="font-bold text-gray-800">系統公告推播</h3>
+                    </div>
+                    <textarea 
+                        className="w-full border border-gray-200 rounded-xl p-3 text-sm bg-gray-50 focus:bg-white focus:ring-2 focus:ring-orange-200 outline-none transition-all resize-none h-24 mb-3" 
+                        placeholder="輸入公告內容..." 
+                        value={broadcastMsg}
+                        onChange={(e) => setBroadcastMsg(e.target.value)}
+                    />
+                    <button 
+                        onClick={() => { onBroadcast(broadcastMsg); setBroadcastMsg(''); }} 
+                        disabled={!broadcastMsg.trim()}
+                        className="w-full bg-orange-500 text-white font-bold py-2.5 rounded-xl hover:bg-orange-600 transition shadow-lg shadow-orange-200 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                    >
+                        <Send size={16} /> 發送全員通知
+                    </button>
+                </div>
+
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col h-[280px]">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50"><h3 className="font-bold text-gray-800 flex items-center gap-2.5"><Clock size={20} className="text-gray-400"/>系統日誌 (異常)</h3></div>
+                    <div className="overflow-y-auto flex-1 p-0 custom-scrollbar"><table className="w-full text-sm"><tbody className="divide-y divide-gray-100">{logs.slice(0, 10).map(l => (
+                        <tr key={l.id} className="hover:bg-gray-50 transition-colors"><td className="px-6 py-3.5">
+                            <div className="flex justify-between text-xs mb-1.5 font-bold text-gray-700"><span>{l.userName}</span><span className="text-gray-400 font-medium font-mono">{formatTime(l.timestamp)}</span></div>
+                            <p className={`text-xs truncate leading-relaxed ${(l.action.includes('異常') || l.action.includes('錯誤') || l.action.includes('失敗')) ? 'text-red-600 font-bold' : 'text-gray-500'}`}>[{l.action}] {l.details}</p>
+                        </td></tr>
+                    ))}</tbody></table></div>
+                </div>
             </div>
         </div>
         )}
@@ -548,26 +573,6 @@ const ProjectsView = ({ projects, users, currentUser, isAdmin, onAdd, onSelect, 
       )}
     </div>
   );
-
-  return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-center bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
-        <h2 className="text-2xl font-bold text-gray-800 pl-3 border-l-[6px] border-theme">專案列表</h2>
-        <div className="flex gap-3">
-          <div className="flex border border-gray-200 rounded-xl p-1 bg-gray-50">
-            {['grid', 'list'].map(m => <button key={m} onClick={()=>setViewMode(m)} className={`p-2.5 rounded-lg transition-all ${viewMode===m?'bg-white text-theme shadow-sm ring-1 ring-black/5':'text-gray-400 hover:text-gray-600'}`}>{m==='grid'?<Grid size={20}/>:<List size={20}/>}</button>)}
-          </div>
-          <button onClick={onAdd} className="flex items-center gap-2 bg-theme text-white px-6 py-2.5 rounded-xl font-bold hover:bg-[#005a26] transition shadow-lg shadow-theme/20"><Plus size={20}/>新增專案</button>
-        </div>
-      </div>
-      
-      <ProjectListSection list={myActiveProjects} title="我的專案 (進行中)" />
-      <div className="border-t border-gray-200 my-8 opacity-50"></div>
-      <ProjectListSection list={otherActiveProjects} title="其他專案 (進行中)" isSimple={true} />
-      <div className="border-t border-gray-200 my-8 opacity-50"></div>
-      <ProjectListSection list={completedProjects} title="已結束的專案" isSimple={true} />
-    </div>
-  );
 };
 
 // --- Project Details with Discussion Modal ---
@@ -621,6 +626,8 @@ const ProjectDetailsModal = ({ project, onClose, users, currentUser, isAdmin }) 
   const handleSendComment = async (e) => {
       e.preventDefault();
       if (!newComment.trim()) return;
+      
+      // 1. Add comment
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects', project.id, 'comments'), {
           text: newComment,
           userId: currentUser.employeeId,
@@ -628,6 +635,27 @@ const ProjectDetailsModal = ({ project, onClose, users, currentUser, isAdmin }) 
           type: 'user',
           createdAt: serverTimestamp()
       });
+
+      // 2. Notify relevant users (Assignee & Creator), excluding the commenter
+      const targets = [];
+      
+      if (project.assignedToEmployeeId && project.assignedToEmployeeId !== currentUser.employeeId) {
+          const assignee = users.find(u => u.employeeId === project.assignedToEmployeeId);
+          if (assignee) targets.push(assignee);
+      }
+      
+      if (project.createdBy && project.createdBy !== currentUser.employeeId) {
+          const creator = users.find(u => u.employeeId === project.createdBy);
+          if (creator) targets.push(creator);
+      }
+      
+      // Remove duplicates (e.g. if creator is also assignee)
+      const uniqueTargets = [...new Set(targets)];
+      
+      uniqueTargets.forEach(async (u) => {
+          await sendNotification(u.uid, 'comment', `${currentUser.displayName} 在專案「${project.title}」發表了留言`, project.id);
+      });
+
       setNewComment('');
   };
 
@@ -1128,6 +1156,11 @@ const handleRegister = async (e) => {
               projects={projects} users={users} myCount={myProjectCount} isAdmin={isAdmin}
               schedules={schedules} logs={logs} openScheduleModal={()=>toggleModal('schedule')} 
               deleteSchedule={(id) => requestConfirm('刪除檔期', '確定要刪除此活動檔期嗎？', async () => { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id)); showToast(setToast, '已刪除'); })}
+              onBroadcast={async (msg) => {
+                  await notifyGroup(users, () => true, 'system', `【系統公告】${msg}`);
+                  await addLog(currentUserProfile, '系統廣播', `發送公告: ${msg}`);
+                  showToast(setToast, '公告已發送');
+              }}
             />}
             
             {activeTab === 'projects' && <ProjectsView 
