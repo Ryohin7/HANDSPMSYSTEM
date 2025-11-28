@@ -38,7 +38,12 @@ const CHANGELOGS = [
 ];
 
 // Firebase Init
-const firebaseConfig = JSON.parse(__firebase_config);
+const firebaseConfig = {
+  apiKey: "AIzaSyC6AOjDsuIbSjTMVqvVDTCu8gO_FTz9jrM",
+  authDomain: "handspmsystem.firebaseapp.com",
+  projectId: "handspmsystem",
+  // ...其他欄位
+};
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -1356,4 +1361,5 @@ export default function App() {
       </main>
     </div>
   );
+
 }
