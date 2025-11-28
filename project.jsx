@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth';
 import { 
   getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, 
-  setDoc, serverTimestamp, writeBatch, query, orderBy
+  setDoc, serverTimestamp, writeBatch, query, orderBy, getDoc
 } from 'firebase/firestore';
 import { 
   LayoutDashboard, FolderKanban, Users, Plus, Trash2, Activity, Shield, Clock,
@@ -733,39 +733,67 @@ export default function App() {
     return onAuthStateChanged(auth, setAuthUser);
   }, []);
 
+  // 監聽登入狀態：如果 Firebase 記得使用者，就自動抓取資料並登入
+  useEffect(() => {
+      const restoreUser = async () => {
+          if (authUser && !authUser.isAnonymous) {
+              try {
+                  const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', authUser.uid);
+                  const docSnap = await getDoc(docRef);
+                  if (docSnap.exists()) {
+                      setCurrentUserProfile(docSnap.data());
+                  }
+              } catch (e) {
+                  console.error("Auto login failed", e);
+              }
+          } else if (!authUser) {
+              setCurrentUserProfile(null); // 確保登出時清空
+          }
+      };
+      restoreUser();
+  }, [authUser]);
+
+  //  <-------------------------------------------------------------------->
+
+  const toggleModal = (key, val = true) => setModals(prev => ({ ...prev, [key]: val }));
+  
+  const handleLogin = async (e) => {
+
   const toggleModal = (key, val = true) => setModals(prev => ({ ...prev, [key]: val }));
   
 const handleLogin = async (e) => {
     e.preventDefault();
     try {
-        // 1. 技巧：將員工編號組合成 Email 進行驗證
+        // 1. 組合 Email
         const email = `${loginId}@hands.com`;
         
-        // 2. 呼叫 Firebase 進行安全登入
+        // 2. Firebase 驗證帳密
         const userCredential = await signInWithEmailAndPassword(auth, email, loginPassword);
         const user = userCredential.user;
 
-        // 3. 登入成功後，從資料庫撈取該用戶的個人資料 (角色、部門等)
-        // 這裡我們從 users 陣列中找 (因為 useSystemData 已經讀取了 metadata)
-        // *注意*：為了更穩定的作法，建議直接讀取單筆 doc，但為了配合您現有架構，我們先從 users 找
-        const userMeta = users.find(u => u.uid === user.uid);
+        // 3. 直接從資料庫讀取該用戶的設定檔 (不依賴 users 陣列)
+        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', user.uid);
+        const docSnap = await getDoc(docRef);
         
-        if (userMeta) {
-            setCurrentUserProfile(userMeta);
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_metadata', user.uid), { lastActive: serverTimestamp(), isOnline: true });
+        if (docSnap.exists()) {
+            const userData = docSnap.data();
+            setCurrentUserProfile(userData);
+            await updateDoc(docRef, { lastActive: serverTimestamp(), isOnline: true });
             showToast(setToast, '登入成功');
         } else {
-            // 雖然帳號密碼對，但資料庫沒資料 (極少見)
-            showToast(setToast, '找不到使用者資料', 'error');
+            showToast(setToast, '帳號驗證成功，但找不到員工資料', 'error');
         }
 
     } catch (error) {
         console.error(error);
-        showToast(setToast, '登入失敗：編號或密碼錯誤', 'error');
+        if(error.code === 'auth/invalid-credential') {
+             showToast(setToast, '員工編號或密碼錯誤', 'error');
+        } else {
+             showToast(setToast, '登入失敗: ' + error.message, 'error');
+        }
         await addLog(null, '登入失敗', `ID: ${loginId} 嘗試登入失敗`);
     }
   };
-
 const handleRegister = async (e) => {
     e.preventDefault();
     if(!registerData.password) { showToast(setToast, '請設定密碼', 'error'); return; }
@@ -1383,4 +1411,5 @@ const handleRegister = async (e) => {
   );
 
 }
+
 
